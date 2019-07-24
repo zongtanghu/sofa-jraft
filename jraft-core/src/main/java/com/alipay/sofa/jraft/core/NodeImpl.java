@@ -1191,9 +1191,16 @@ public class NodeImpl implements Node, RaftServerService {
         try {
             switch (this.state) {
                 case STATE_LEADER:
+                    /**
+                     * 当前节点状态是 STATE_LEADER 即为 Leader 节点，接收 ReadIndex 请求调用 
+                     */
                     readLeader(request, ReadIndexResponse.newBuilder(), done);
                     break;
                 case STATE_FOLLOWER:
+                    /**
+                     * 当前节点状态是 STATE_FOLLOWER 即为 Follower 节点，
+                     * 接收 ReadIndex 请求通过 readFollower(request,  done) 方法支持线性一致读
+                     */
                     readFollower(request, done);
                     break;
                 case STATE_TRANSFERRING:
@@ -1218,6 +1225,15 @@ public class NodeImpl implements Node, RaftServerService {
         return c.getPeers().size() / 2 + 1;
     }
 
+    /**
+     * Follower 节点调用 RpcService#readIndex(leaderId.getEndpoint(), newRequest, -1, closure)
+     * 方法向 Leader 发送 ReadIndex 请求，Leader 节点调用 readIndex(requestContext, done)
+     * 方法启动可线性化只读查询请求，只读服务添加请求发布 ReadIndex 事件到队列
+     * readIndexQueue 即 Disruptor 的 Ring Buffer；
+     *
+     * @param request
+     * @param closure
+     */
     private void readFollower(final ReadIndexRequest request, final RpcResponseClosure<ReadIndexResponse> closure) {
         if (this.leaderId == null || this.leaderId.isEmpty()) {
             closure.run(new Status(RaftError.EPERM, "No leader at term %d.", this.currTerm));
@@ -1231,10 +1247,20 @@ public class NodeImpl implements Node, RaftServerService {
         this.rpcService.readIndex(this.leaderId.getEndpoint(), newRequest, -1, closure);
     }
 
+    /**
+     * 
+     * @param request
+     * @param respBuilder
+     * @param closure
+     */
     private void readLeader(final ReadIndexRequest request, final ReadIndexResponse.Builder respBuilder,
                             final RpcResponseClosure<ReadIndexResponse> closure) {
         final int quorum = getQuorum();
         if (quorum <= 1) {
+            /**
+             * 检查当前 Raft 集群节点数量，如果集群只有一个 Peer节点
+             * 直接获取投票箱 BallotBox 最新提交索引 lastCommittedIndex 即 Leader 节点当前 Log 的 commitIndex 构建 ReadIndexClosure 响应
+             */
             // Only one peer, fast path.
             respBuilder.setSuccess(true) //
                 .setIndex(this.ballotBox.getLastCommittedIndex());
@@ -1244,6 +1270,12 @@ public class NodeImpl implements Node, RaftServerService {
         }
 
         final long lastCommittedIndex = this.ballotBox.getLastCommittedIndex();
+        /**
+         * ReadInd日志管理器 LogManager 基于投票箱 BallotBox 的 lastCommittedIndex
+         * 获取任期检查是否等于当前任期，如果不等于当前任期表示此 Leader节点
+         * 未在其任期内提交任何日志，需要拒绝只读请求；
+         * 
+         */
         if (this.logManager.getTerm(lastCommittedIndex) != this.currTerm) {
             // Reject read only request when this leader has not committed any log entry at its term
             closure
@@ -1267,11 +1299,27 @@ public class NodeImpl implements Node, RaftServerService {
         }
 
         ReadOnlyOption readOnlyOpt = this.raftOptions.getReadOnlyOptions();
+        /**
+         * 当 ReadOnlyOption 配置为 ReadOnlyLeaseBased 时确认 Leader 租约是否有效即检查
+         * Heartbeat 间隔是否小于 election timeout 时间
+         *
+         */
         if (readOnlyOpt == ReadOnlyOption.ReadOnlyLeaseBased && !isLeaderLeaseValid()) {
             // If leader lease timeout, we must change option to ReadOnlySafe
             readOnlyOpt = ReadOnlyOption.ReadOnlySafe;
         }
-
+        /**
+         * step1:获取 ReadIndex 请求级别 ReadOnlyOption 配置，ReadOnlyOption
+         * 参数默认值为 ReadOnlySafe，ReadOnlySafe 通过与 Quorum 通信来保证只读请求的
+         * 可线性化。按照 ReadOnlyOption 配置为ReadOnlySafe调用
+         * Replicator#sendHeartbeat(rid, closure) 方法向 Followers节点发送Heartbeat
+         * 心跳请求，发送心跳成功执行 ReadIndexHeartbeatResponseClosure 心跳响应回调；
+         *
+         *
+         * step2.ReadIndex 心跳响应回调检查是否超过半数节点包括 Leader 节点自身投票赞成，
+         * 半数以上节点返回客户端Heartbeat 请求成功响应，即 applyIndex 超过 ReadIndex
+         * 说明已经同步到 ReadIndex 对应的 Log 能够提供 Linearizable Read。
+         */
         switch (readOnlyOpt) {
             case ReadOnlySafe:
                 final List<PeerId> peers = this.conf.getConf().getPeers();

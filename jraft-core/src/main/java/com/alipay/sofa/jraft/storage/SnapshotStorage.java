@@ -25,6 +25,8 @@ import com.alipay.sofa.jraft.storage.snapshot.SnapshotWriter;
 /**
  * Snapshot storage.
  *
+ * SnapshotStorage 快照存储实现，定义 Raft 状态机的 Snapshot 存储模块核心 API 接口
+ *
  * @author boyan (boyan@alibaba-inc.com)
  *
  * 2018-Apr-08 3:30:05 PM
@@ -32,22 +34,30 @@ import com.alipay.sofa.jraft.storage.snapshot.SnapshotWriter;
 public interface SnapshotStorage extends Lifecycle<Void>, Storage {
 
     /**
+     * 设置 filterBeforeCopyRemote ，为 true 表示复制到远程之前过滤数据
+     *
      * Set filterBeforeCopyRemote to be true.When true,
      * it will filter the data before copy to remote.
      */
     boolean setFilterBeforeCopyRemote();
 
     /**
+     * 创建快照编写器
+     *
      * Create a snapshot writer.
      */
     SnapshotWriter create();
 
     /**
+     * 打开快照阅读器
+     *
      * Open a snapshot reader.
      */
     SnapshotReader open();
 
     /**
+     * 从远程 Uri 复制数据
+     *
      * Copy data from remote uri.
      *
      * @param uri   remote uri
@@ -57,6 +67,8 @@ public interface SnapshotStorage extends Lifecycle<Void>, Storage {
     SnapshotReader copyFrom(String uri, SnapshotCopierOptions opts);
 
     /**
+     * 启动从远程 Uri 复制数据的复制任务
+     * 
      * Starts a copy job to copy data from remote uri.
      *
      * @param uri   remote uri
@@ -66,6 +78,8 @@ public interface SnapshotStorage extends Lifecycle<Void>, Storage {
     SnapshotCopier startToCopyFrom(String uri, SnapshotCopierOptions opts);
 
     /**
+     * 配置 SnapshotThrottle，SnapshotThrottle 用于重盘读/写场景限流的，比如磁盘读写、网络带宽
+     *
      * Configure a SnapshotThrottle.
      *
      * @param snapshotThrottle throttle of snapshot

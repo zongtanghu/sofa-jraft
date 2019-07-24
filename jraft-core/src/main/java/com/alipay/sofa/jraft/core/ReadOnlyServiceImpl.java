@@ -196,6 +196,14 @@ public class ReadOnlyServiceImpl implements ReadOnlyService, LastAppliedLogIndex
         }
     }
 
+    /**
+     * ReadIndex 事件处理器 ReadIndexEventHandler 通过 MPSC Queue 模型攒批消费触发使用
+     * executeReadIndexEvents(events) 执行 ReadIndex 事件，轮询 ReadIndex
+     * 事件封装 ReadIndexState 状态列表构建 ReadIndexResponseClosure 响应回调提交给
+     * Leader 节点处理 ReadIndex 请求；
+     * 
+     * @param events
+     */
     private void executeReadIndexEvents(final List<ReadIndexEvent> events) {
         if (events.isEmpty()) {
             return;

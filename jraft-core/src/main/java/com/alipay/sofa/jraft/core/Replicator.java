@@ -1429,6 +1429,12 @@ public class Replicator implements ThreadId.OnError {
 
     }
 
+    /**
+     * 向其他peer节点发送心跳包信息
+     * 
+     * @param id
+     * @param closure
+     */
     public static void sendHeartbeat(final ThreadId id, final RpcResponseClosure<AppendEntriesResponse> closure) {
         final Replicator r = (Replicator) id.lock();
         if (r == null) {

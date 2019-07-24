@@ -136,6 +136,20 @@ public class RocksDBLogStorage implements LogStorage {
             setMergeOperator(new StringAppendOperator());
     }
 
+    /**
+     *
+     * 创建 RocksDB 配置选项调用 RocksDB#open() 方法构建 RocksDB 实例，
+     * 添加 default 默认列族及其配置选项获取列族处理器，
+     * 通过 newIterator() 生成 RocksDB 迭代器遍历 KeyValue 数据检查
+     * Value 类型加载 Raft 配置变更到配置管理器 ConfigurationManager。
+     * RocksDB 引入列族 ColumnFamily 概念，所谓列族是指一系列 KeyValue
+     * 组成的数据集，RocksDB 读写操作需要指定列族，创建 RocksDB
+     * 默认构建命名为 default 的列族。
+     *
+     *
+     * @param opts
+     * @return
+     */
     @Override
     public boolean init(final LogStorageOptions opts) {
         Requires.requireNonNull(opts.getConfigurationManager(), "Null conf manager");
@@ -282,6 +296,11 @@ public class RocksDBLogStorage implements LogStorage {
         return true;
     }
 
+    /**
+     * 首先关闭列族处理器以及 RocksDB 实例，其次遍历列族配置选项执行关闭操作，
+     * 接着关闭 RocksDB 配置选项，最后清除强引用以达到 Help GC
+     * 垃圾回收 RocksDB 实例及其配置选项对象。
+     */
     @Override
     public void shutdown() {
         this.writeLock.lock();
@@ -314,6 +333,14 @@ public class RocksDBLogStorage implements LogStorage {
         this.db.close();
     }
 
+    /**
+     * 基于处理器 defaultHandle 和读选项 totalOrderReadOptions 方法构建
+     * RocksDB 迭代器 RocksIterator，检查是否加载过日志里第一个日志索引，
+     * 未加载需调用 seekToFirst() 方法获取缓存 RocksDB 存储日志数据的第一个日志索引。
+     *
+     *
+     * @return
+     */
     @Override
     public long getFirstLogIndex() {
         this.readLock.lock();
@@ -339,6 +366,14 @@ public class RocksDBLogStorage implements LogStorage {
         }
     }
 
+    /**
+     * 基于处理器 defaultHandle 和读选项 totalOrderReadOptions
+     * 构建 RocksDB 迭代器 RocksIterator，调用 seekToLast() 方法返回
+     * RocksDB 存储日志记录的最后一个日志索引。
+     *
+     *
+     * @return
+     */
     @Override
     public long getLastLogIndex() {
         this.readLock.lock();
@@ -353,6 +388,13 @@ public class RocksDBLogStorage implements LogStorage {
         }
     }
 
+    /**
+     * 基于处理器 defaultHandle 和指定日志索引调用 RocksDB#get()
+     * 操作返回 RocksDB 索引位置日志 LogEntry。
+     *
+     * @param index
+     * @return
+     */
     @Override
     public LogEntry getEntry(final long index) {
         this.readLock.lock();
@@ -386,6 +428,13 @@ public class RocksDBLogStorage implements LogStorage {
         return ks;
     }
 
+    /**
+     * 基于处理器 defaultHandle 和指定日志索引调用 RocksDB#get() 操作获取
+     * RocksDB 索引位置日志并且返回其 LogEntry 的任期。
+     * 
+     * @param index
+     * @return
+     */
     @Override
     public long getTerm(final long index) {
         final LogEntry entry = getEntry(index);
@@ -408,6 +457,14 @@ public class RocksDBLogStorage implements LogStorage {
         batch.put(this.defaultHandle, ks, content);
     }
 
+    /**
+     * 检查日志 LogEntry 类型是否为配置变更，配置变更类型调用
+     * RocksDB#write() 方法执行批量写入，用户提交任务的日志基于处理器
+     * defaultHandle 和 LogEntry 对象调用 RocksDB#put() 方法存储。
+     *
+     * @param entry
+     * @return
+     */
     @Override
     public boolean appendEntry(final LogEntry entry) {
         if (entry.getType() == EntryType.ENTRY_TYPE_CONFIGURATION) {
@@ -428,6 +485,15 @@ public class RocksDBLogStorage implements LogStorage {
         }
     }
 
+    /**
+     * 调用 RocksDB#write() 方法把 Raft 配置变更或者用户提交任务的日志
+     * 同步刷盘批量写入 RocksDB 存储，通过 Batch Write 手段合并 IO
+     * 写入请求减少方法调用和上下文切换。
+     *
+     *
+     * @param entries
+     * @return
+     */
     @Override
     public int appendEntries(final List<LogEntry> entries) {
         if (entries == null || entries.isEmpty()) {
@@ -453,6 +519,14 @@ public class RocksDBLogStorage implements LogStorage {
 
     }
 
+    /**
+     * 获取第一个日志索引，后台启动一个线程基于默认处理器 defaultHandle
+     * 和配置处理器 confHandle 执行 RocksDB#deleteRange() 操作删除从
+     * Log 头部以第一个日志索引到指定索引位置范围的 RocksDB 日志数据。
+     *
+     * @param firstIndexKept
+     * @return
+     */
     @Override
     public boolean truncatePrefix(final long firstIndexKept) {
         this.readLock.lock();
@@ -488,6 +562,14 @@ public class RocksDBLogStorage implements LogStorage {
         });
     }
 
+    /**
+     * 获取最后一个日志索引，基于默认处理器 defaultHandle 和配置处理器
+     * confHandle 执行 RocksDB#deleteRange() 操作清理从 Log
+     * 末尾以指定索引位置到最后一个索引范畴的 RocksDB 未提交日志。
+     *
+     * @param lastIndexKept
+     * @return
+     */
     @Override
     public boolean truncateSuffix(final long lastIndexKept) {
         this.readLock.lock();
@@ -506,6 +588,15 @@ public class RocksDBLogStorage implements LogStorage {
         return false;
     }
 
+    /**
+     * 获取 nextLogIndex 索引对应的 LogEntry，执行 RocksDB#close()
+     * 方法关闭 RocksDB实例，调用 RocksDB#destroyDB() 操作销毁
+     * RocksDB 实例清理 RocksDB 所有数据，重新初始化加载 RocksDB
+     * 实例并且重置下一个日志索引位置。
+     *
+     * @param nextLogIndex
+     * @return
+     */
     @Override
     public boolean reset(final long nextLogIndex) {
         if (nextLogIndex <= 0) {

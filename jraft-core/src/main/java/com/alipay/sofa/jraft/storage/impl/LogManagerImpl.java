@@ -323,6 +323,7 @@ public class LogManagerImpl implements LogManager {
                 }
             }
             if (!entries.isEmpty()) {
+                //日志缓存Entries
                 done.setFirstLogIndex(entries.get(0).getId().getIndex());
                 this.logsInMemory.addAll(entries);
             }
@@ -335,7 +336,7 @@ public class LogManagerImpl implements LogManager {
                 event.done = done;
             };
             while (true) {
-                if (tryOfferEvent(done, translator)) {
+                if (tryOfferEvent(done, translator)) {//发布事件至Disruptor队列
                     break;
                 } else {
                     retryTimes++;
@@ -488,6 +489,16 @@ public class LogManagerImpl implements LogManager {
         }
     }
 
+    /**
+     * 稳定状态回调 StableClosure 事件处理器 StableClosureEventHandler 处理队列事件
+     * StableClosureEventHandler 处理器事件触发的时候判断任务回调 StableClosure 的 Log Entries
+     * 是否为空，如果任务回调的 Log Entries 为非空需积攒日志条目批量 Flush，
+     * 空则检查 StableClosureEvent 事件类型并且调用底层存储 LogStorage#appendEntries(entries)
+     * 批量提交日志写入 RocksDB，当事件类型为SHUTDOWN、RESET、TRUNCATEPREFIX、TRUNCATESUFFIX、
+     * LASTLOGID 时调用底层日志存储 LogStorage 进行指定事件回调 ResetClosure、TruncatePrefixClosure、
+     * TruncateSuffixClosure、LastLogIdClosure 处理。
+     *
+     */
     private class StableClosureEventHandler implements EventHandler<StableClosureEvent> {
         LogId               lastId  = LogManagerImpl.this.diskId;
         List<StableClosure> storage = new ArrayList<>(256);

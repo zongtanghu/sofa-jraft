@@ -27,6 +27,8 @@ import com.alipay.sofa.jraft.rpc.RpcRequests.InstallSnapshotResponse;
 /**
  * Executing Snapshot related stuff.
  *
+ * 用于管理 Snapshot 存储、远程安装、复制
+ *
  * @author boyan (boyan@alibaba-inc.com)
  *
  * 2018-Mar-22 2:27:02 PM

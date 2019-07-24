@@ -23,6 +23,8 @@ import com.alipay.sofa.jraft.entity.LogEntry;
 import com.alipay.sofa.jraft.option.LogStorageOptions;
 
 /**
+ * LogStorage仅是一个Jraft库的日志存储接口,其默认实现基于RocksDB存储
+ * 
  * Log entry storage service.
  *
  * @author boyan (boyan@alibaba-inc.com)
@@ -43,6 +45,8 @@ public interface LogStorage extends Lifecycle<LogStorageOptions>, Storage {
 
     /**
      * Get logEntry by index.
+     * 按照日志索引获取 Log Entry 及其任期
+     * 
      */
     LogEntry getEntry(long index);
 
@@ -55,29 +59,39 @@ public interface LogStorage extends Lifecycle<LogStorageOptions>, Storage {
 
     /**
      * Append entries to log.
+     * 把单个 Log Entry 添加到日志存储
+     *
      */
     boolean appendEntry(LogEntry entry);
 
     /**
      * Append entries to log, return append success number.
+     * 把批量 Log Entry 添加到日志存储
+     *
      */
     int appendEntries(List<LogEntry> entries);
 
     /**
      * Delete logs from storage's head, [first_log_index, first_index_kept) will
      * be discarded.
+     * 从 Log 存储头部删除日志
+     *
      */
     boolean truncatePrefix(long firstIndexKept);
 
     /**
      * Delete uncommitted logs from storage's tail, (last_index_kept, last_log_index]
      * will be discarded.
+     * 从 Log 存储末尾删除日志
+     *
      */
     boolean truncateSuffix(long lastIndexKept);
 
     /**
      * Drop all the existing logs and reset next log index to |next_log_index|.
      * This function is called after installing snapshot from leader.
+     * 删除所有现有日志，重置下任日志索引
+     *
      */
     boolean reset(long nextLogIndex);
 }

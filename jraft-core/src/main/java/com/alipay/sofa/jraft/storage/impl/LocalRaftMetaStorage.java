@@ -64,6 +64,14 @@ public class LocalRaftMetaStorage implements RaftMetaStorage {
         this.raftOptions = raftOptions;
     }
 
+    /**
+     * 获取 Raft 元信息存储配置 RaftMetaStorageOptions 节点 Node，读取命名为 raft_meta 的
+     * ProtoBufFile 文件加载 StablePBMeta 消息，根据 StablePBMeta ProtoBuf 元数据缓存 Raft
+     * 当前任期 Term 和 PeerId 节点投票信息。
+     * 
+     * @param opts
+     * @return
+     */
     @Override
     public boolean init(final RaftMetaStorageOptions opts) {
         if (this.isInited) {
@@ -139,6 +147,11 @@ public class LocalRaftMetaStorage implements RaftMetaStorage {
             "Fail to save raft meta, path=%s", this.path));
     }
 
+    /**
+     * 获取内存里 Raft 当前任期 Term 和 PeerId 节点投票构建 StablePBMeta 消息，按照 Raft
+     * 内部是否同步元数据配置写入 ProtoBufFile 文件。
+     * 
+     */
     @Override
     public void shutdown() {
         if (!this.isInited) {
@@ -154,6 +167,12 @@ public class LocalRaftMetaStorage implements RaftMetaStorage {
         }
     }
 
+    /**
+     * 检查 LocalRaftMetaStorage 初始化状态，缓存设置的当前任期 Term，按照 Raft
+     * 是否同步元数据配置把当前任期 Term 作为 ProtoBuf 消息保存到 ProtoBufFile 文件。
+     * @param term
+     * @return
+     */
     @Override
     public boolean setTerm(final long term) {
         checkState();
@@ -161,12 +180,23 @@ public class LocalRaftMetaStorage implements RaftMetaStorage {
         return save();
     }
 
+    /**
+     * 检查 LocalRaftMetaStorage 初始化状态，返回缓存的当前任期 Term。
+     * @return
+     */
     @Override
     public long getTerm() {
         checkState();
         return this.term;
     }
 
+    /**
+     * 检查 LocalRaftMetaStorage 初始化状态，缓存投票的 PeerId 节点，按照 Raft
+     * 是否同步元数据配置把投票 PeerId 节点作为 ProtoBuf 消息保存到 ProtoBufFile 文件。
+     * 
+     * @param peerId
+     * @return
+     */
     @Override
     public boolean setVotedFor(final PeerId peerId) {
         checkState();
@@ -174,6 +204,11 @@ public class LocalRaftMetaStorage implements RaftMetaStorage {
         return save();
     }
 
+    /**
+     * 检查 LocalRaftMetaStorage 初始化状态，返回缓存的投票 PeerId 节点。
+     * 
+     * @return
+     */
     @Override
     public PeerId getVotedFor() {
         checkState();

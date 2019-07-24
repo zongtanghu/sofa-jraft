@@ -54,6 +54,11 @@ import com.alipay.sofa.jraft.util.Utils;
 /**
  * Snapshot executor implementation.
  *
+ * 快照执行器 SnapshotExecutor 负责 Raft 状态机 Snapshot 存储、
+ * Leader 远程安装快照、复制镜像 Snapshot 文件，
+ * 包括两大核心操作：状态机快照 doSnapshot(done) 和安装快照
+ * installSnapshot(request, response, done)。
+ *
  * @author boyan (boyan@alibaba-inc.com)
  *
  * 2018-Mar-22 5:38:56 PM
@@ -298,6 +303,11 @@ public class SnapshotExecutorImpl implements SnapshotExecutor {
         return this.node;
     }
 
+    /**
+     * 生成快照
+     *
+     * @param done snapshot callback
+     */
     @Override
     public void doSnapshot(final Closure done) {
         boolean doUnlock = true;
@@ -327,6 +337,8 @@ public class SnapshotExecutorImpl implements SnapshotExecutor {
                 Utils.runClosureInThread(done);
                 return;
             }
+            //1.基于临时镜像 temp 文件路径的 Snapshot 存储快照编写器 LocalSnapshotWrite,
+            // 加载 _raftsnapshotmeta 快照元数据文件初始化编写器
             final SnapshotWriter writer = this.snapshotStorage.create();
             if (writer == null) {
                 Utils.runClosureInThread(done, new Status(RaftError.EIO, "Fail to create writer."));
@@ -334,7 +346,9 @@ public class SnapshotExecutorImpl implements SnapshotExecutor {
                 return;
             }
             this.savingSnapshot = true;
+            //2.构建保存镜像回调SaveSnapshotDone 提供 FSMCaller 调用 StateMachine 的状态转换发布 SNAPSHOTSAVE 类型任务事件到 Disruptor 队列
             final SaveSnapshotDone saveSnapshotDone = new SaveSnapshotDone(writer, done, null);
+            //2.1通过 Ring Buffer 方式触发申请任务处理器 ApplyTaskHandler 运行快照保存任务
             if (!this.fsmCaller.onSnapshotSave(saveSnapshotDone)) {
                 Utils.runClosureInThread(done, new Status(RaftError.EHOSTDOWN, "The raft node is down."));
                 return;
@@ -460,10 +474,18 @@ public class SnapshotExecutorImpl implements SnapshotExecutor {
         this.runningJobs.countDown();
     }
 
+    /**
+     * 远程安装快照
+     * 
+     * @param request
+     * @param response
+     * @param done
+     */
     @Override
     public void installSnapshot(final InstallSnapshotRequest request, final InstallSnapshotResponse.Builder response,
                                 final RpcRequestClosure done) {
         final SnapshotMeta meta = request.getMeta();
+        //1.按照安装镜像请求响应以及快照原信息创建并且注册快照下载作业 DownloadingSnapshot
         final DownloadingSnapshot ds = new DownloadingSnapshot(request, response, done);
         //DON'T access request, response, and done after this point
         //as the retry snapshot will replace this one.
@@ -493,6 +515,7 @@ public class SnapshotExecutorImpl implements SnapshotExecutor {
                 return;
             }
             Requires.requireNonNull(this.curCopier, "curCopier");
+            //1.加载快照下载 DownloadingSnapshot 获取当前快照拷贝器的阅读器 SnapshotReader
             reader = this.curCopier.getReader();
             if (!this.curCopier.isOk()) {
                 if (this.curCopier.getCode() == RaftError.EIO.getNumber()) {
@@ -521,6 +544,8 @@ public class SnapshotExecutorImpl implements SnapshotExecutor {
         } finally {
             this.lock.unlock();
         }
+        //2.构建安装镜像回调 InstallSnapshotDone 分配 FSMCaller 调用 StateMachine 的状态转换发布 SNAPSHOT_LOAD 类型任务事件到 Disruptor 队列
+        //也是通过 Ring Buffer 触发申请任务处理器 ApplyTaskHandler 执行快照安装任务，调用 onSnapshotLoad() 操作加载各种类型状态机快照
         final InstallSnapshotDone installSnapshotDone = new InstallSnapshotDone(reader);
         if (!this.fsmCaller.onSnapshotLoad(installSnapshotDone)) {
             LOG.warn("Fail to  call fsm onSnapshotLoad");

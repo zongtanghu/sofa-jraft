@@ -30,6 +30,9 @@ import com.alipay.sofa.jraft.option.LogManagerOptions;
 /**
  * Log manager.
  *
+ * LogManager负责调用底层日志存LogStorage，针对日志存储调用进行缓存、
+ * 批量提交、必要的检查和优化
+ *
  * @author boyan (boyan@alibaba-inc.com)
  *
  * 2018-Apr-04 3:02:42 PM

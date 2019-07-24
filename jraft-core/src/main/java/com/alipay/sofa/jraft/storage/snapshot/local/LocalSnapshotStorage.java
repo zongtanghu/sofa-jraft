@@ -46,6 +46,9 @@ import com.alipay.sofa.jraft.util.Utils;
 
 /**
  * Snapshot storage based on local file storage.
+ * 基于本地文件存储 Raft 状态机镜像，初始化元快照存储 StorageFactory
+ * 根据 Raft 镜像快照存储路径和 Raft 配置信息默认创建 LocalSnapshotStorage 快照存储。
+ *
  *
  * @author boyan (boyan@alibaba-inc.com)
  *
@@ -95,6 +98,14 @@ public class LocalSnapshotStorage implements SnapshotStorage {
         }
     }
 
+    /**
+     * 删除文件命名为 temp 的临时镜像 Snapshot，
+     * 销毁文件前缀为 snapshot_ 的旧快照 Snapshot，
+     * 获取快照最后一个索引 lastSnapshotIndex。
+     *
+     * @param v
+     * @return
+     */
     @Override
     public boolean init(Void v) {
         final File dir = new File(this.path);
@@ -196,6 +207,16 @@ public class LocalSnapshotStorage implements SnapshotStorage {
         return refs;
     }
 
+    /**
+     * 按照快照最后一个索引 lastSnapshotIndex 和镜像编写器 LocalSnapshotWriter
+     * 快照索引重命名临时镜像 Snapshot 文件，销毁编写器 LocalSnapshotWriter
+     * 存储路径快照。
+     *
+     *
+     * @param writer
+     * @param keepDataOnError
+     * @throws IOException
+     */
     void close(LocalSnapshotWriter writer, boolean keepDataOnError) throws IOException {
         int ret = writer.getCode();
         // noinspection ConstantConditions
@@ -263,6 +284,13 @@ public class LocalSnapshotStorage implements SnapshotStorage {
         return true;
     }
 
+    /**
+     * 销毁文件命名为 temp 的临时快照 Snapshot，
+     * 基于临时镜像存储路径创建初始化快照编写器 LocalSnapshotWriter，
+     * 加载文件命名为 _raftsnapshot_meta 的 Raft 快照元数据至内存。
+     *
+     * @return
+     */
     @Override
     public SnapshotWriter create() {
         return this.create(true);
@@ -290,6 +318,13 @@ public class LocalSnapshotStorage implements SnapshotStorage {
         return writer;
     }
 
+    /**
+     * 根据快照最后一个索引 lastSnapshotIndex 获取文件前缀为 snapshot_ 快照存储路径，
+     * 基于快照存储路径创建初始化快照阅读器 LocalSnapshotReader，加载文件命名为
+     * _raftsnapshot_meta 的 Raft 镜像元数据至内存。
+     *
+     * @return
+     */
     @Override
     public SnapshotReader open() {
         long lsIndex = 0;
@@ -317,6 +352,18 @@ public class LocalSnapshotStorage implements SnapshotStorage {
         return reader;
     }
 
+    /**
+     * 创建初始化状态机快照复制器 LocalSnapshotCopier，
+     * 生成远程文件复制器 RemoteFileCopier，基于远程服务地址 Endpoint 获取
+     * Raft 客户端 RPC 服务连接指定 Uri，启动后台线程复制 Snapshot 镜像数据，
+     * 加载 Raft 快照元数据获取远程快照 Snapshot 镜像文件，
+     * 读取远程指定快照存储路径数据拷贝到 BoltSession，
+     * 快照复制器 LocalSnapshotCopier 同步 Raft 快照元数据。
+     * 
+     * @param uri   remote uri
+     * @param opts  copy options
+     * @return
+     */
     @Override
     public SnapshotReader copyFrom(String uri, SnapshotCopierOptions opts) {
         final SnapshotCopier copier = this.startToCopyFrom(uri, opts);
