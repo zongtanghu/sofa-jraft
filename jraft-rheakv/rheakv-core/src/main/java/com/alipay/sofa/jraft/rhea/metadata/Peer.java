@@ -30,7 +30,10 @@ public class Peer implements Copiable<Peer>, Serializable {
 
     private static final long serialVersionUID = -266370017635677437L;
 
+    //Peer.id 也是由 PD 全局分配的
     private long              id;
+
+    //代表的是 Peer 当前所处的 Store
     private long              storeId;
     private Endpoint          endpoint;
 

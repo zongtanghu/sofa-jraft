@@ -537,6 +537,7 @@ public class StoreEngine implements Lifecycle<StoreEngineOptions> {
             registerRegionKVService(new DefaultRegionKVService(engine));
 
             // update local regionRouteTable
+            //更新存储在 PD 的 Region 路由表
             this.pdClient.getRegionRouteTable().splitRegion(pRegion.getId(), region);
             if (closure != null) {
                 // null on follower

@@ -91,8 +91,9 @@ public class RegionRouteTable {
     private static final Comparator<byte[]>  keyBytesComparator = BytesUtil.getDefaultByteArrayComparator();
 
     private final StampedLock                stampedLock        = new StampedLock();
-    private final NavigableMap<byte[], Long> rangeTable         = new TreeMap<>(keyBytesComparator);
-    private final Map<Long, Region>          regionTable        = Maps.newHashMap();
+    //类似数据结构跳表或者二叉树的最接近匹配项查询
+    private final NavigableMap<byte[], Long/*RegionId*/> rangeTable         = new TreeMap<>(keyBytesComparator);
+    private final Map<Long/*RegionId*/, Region>          regionTable        = Maps.newHashMap();
 
     public Region getRegionById(final long regionId) {
         final StampedLock stampedLock = this.stampedLock;
@@ -248,11 +249,14 @@ public class RegionRouteTable {
             final byte[] realStartKey = BytesUtil.nullToEmpty(startKey);
             final NavigableMap<byte[], Long> subRegionMap;
             if (endKey == null) {
+                //返回此映射的部分视图，其键大于等于 fromKey
                 subRegionMap = this.rangeTable.tailMap(realStartKey, false);
             } else {
+                //返回此映射的部分视图，其键值的范围从 fromKey（不包括）到 toKey（包括）
                 subRegionMap = this.rangeTable.subMap(realStartKey, false, endKey, true);
             }
             final List<Region> regionList = Lists.newArrayListWithCapacity(subRegionMap.size() + 1);
+            //返回一个键-值映射关系，它与小于等于给定键的最大键关联；如果不存在这样的键，则返回 null
             final Map.Entry<byte[], Long> headEntry = this.rangeTable.floorEntry(realStartKey);
             if (headEntry == null) {
                 reportFail(startKey);

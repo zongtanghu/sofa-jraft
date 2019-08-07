@@ -47,11 +47,16 @@ public class Region implements Copiable<Region>, Serializable {
     public static final long  MIN_ID_WITH_MANUAL_CONF = -1L;
     public static final long  MAX_ID_WITH_MANUAL_CONF = 1000000L;
 
+    //Region 的唯一标识，通过 PD 全局唯一分配
     private long              id;                                             // region id
+
+    //表示的是 Region 的 key 的区间范围 [startKey, endKey)，特别值得注意的是针对最开始 Region 的 startKey，和最后 Region 的 endKey 都为
     // Region key range [startKey, endKey)
     private byte[]            startKey;                                       // inclusive
     private byte[]            endKey;                                         // exclusive
     private RegionEpoch       regionEpoch;                                    // region term
+
+    //peers 则指的是当前 Region 所包含的节点信息
     private List<Peer>        peers;                                          // all peers in the region
 
     public Region() {

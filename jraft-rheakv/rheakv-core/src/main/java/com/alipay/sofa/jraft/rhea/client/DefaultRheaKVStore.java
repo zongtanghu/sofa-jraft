@@ -561,6 +561,11 @@ public class DefaultRheaKVStore implements RheaKVStore {
                                                     final boolean readOnlySafe, final boolean returnValue,
                                                     final int retriesLeft, final Throwable lastCause) {
         Requires.requireNonNull(startKey, "startKey");
+
+        /**
+         * 1.在调用 scan 首先让 PD Client 通过 RegionRouteTable.findRegionsByKeyRange
+         * 检索 startKey、endKey 所覆盖的 Region,最后返回的可能为多个 Region
+         */
         final List<Region> regionList = this.pdClient
                 .findRegionsByKeyRange(startKey, endKey, ApiExceptionHelper.isInvalidEpoch(lastCause));
         final List<CompletableFuture<List<KVEntry>>> futures = Lists.newArrayListWithCapacity(regionList.size());
