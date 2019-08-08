@@ -30,8 +30,10 @@ public class RaftOptions {
     /** File service check hole switch, default disable */
     private boolean        fileCheckHole                        = false;
     /** The maximum number of entries in AppendEntriesRequest */
+    //** 从 leader 往 follower 发送的最大日志个数，默认 1024 */
     private int            maxEntriesSize                       = 1024;
     /** The maximum byte size of AppendEntriesRequest */
+    //**从 leader 往 follower 发送日志的最大 body 大小，默认 512K*/
     private int            maxBodySize                          = 512 * 1024;
     /** Flush buffer to LogStorage if the buffer size reaches the limit */
     private int            maxAppendBufferSize                  = 256 * 1024;

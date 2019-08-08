@@ -140,6 +140,9 @@ public class Replicator implements ThreadId.OnError {
 
     /**
      * Replicator state
+     * Probe,类似探针请求,目的是知道 Follower 已经拥有的的日志位置，以便于向 Follower 发送后续的日志
+     * 
+     *
      * @author dennis
      *
      */
@@ -230,6 +233,10 @@ public class Replicator implements ThreadId.OnError {
 
     /**
      * In-flight request.
+     * Inflight 是对批量发送出去的 logEntry 的一种抽象,
+     * 他表示哪些 logEntry 已经被封装成日志复制 request 发送出去了
+     *
+     *
      * @author dennis
      *
      */
@@ -1280,6 +1287,14 @@ public class Replicator implements ThreadId.OnError {
         return true;
     }
 
+    /**
+     *
+     *
+     * @param rb
+     * @param prevLogIndex
+     * @param isHeartbeat
+     * @return
+     */
     private boolean fillCommonFields(final AppendEntriesRequest.Builder rb, long prevLogIndex, final boolean isHeartbeat) {
         final long prevLogTerm = this.options.getLogManager().getTerm(prevLogIndex);
         if (prevLogTerm == 0 && prevLogIndex != 0) {
@@ -1423,6 +1438,12 @@ public class Replicator implements ThreadId.OnError {
                 }
 
             });
+        /**
+         * Leader 维护一个 queue，每发出一批 logEntry 就向 queue 中 添加一个代表这一批
+         * logEntry 的 Inflight，这样当它知道某一批 logEntry 复制失败之后，就可以依赖 queue
+         * 中的 Inflight 把该批次 logEntry 以及后续的所有日志重新复制给 follower。
+         * 既保证日志复制能够完成，又保证了复制日志的顺序不变。
+         */
         addInflight(RequestType.AppendEntries, nextSendingIndex, request.getEntriesCount(), request.getData().size(),
             seq, rpcFuture);
         return true;
