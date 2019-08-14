@@ -24,6 +24,7 @@ import com.alipay.sofa.jraft.option.FSMCallerOptions;
 
 /**
  * Finite state machine caller.
+ *  封装对业务 StateMachine 的状态转换的调用以及日志的写入等，一个有限状态机的实现
  *
  * @author boyan (boyan@alibaba-inc.com)
  *
