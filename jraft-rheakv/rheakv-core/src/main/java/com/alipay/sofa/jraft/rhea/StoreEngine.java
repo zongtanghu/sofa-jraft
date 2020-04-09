@@ -30,7 +30,6 @@ import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.alipay.remoting.rpc.RpcServer;
 import com.alipay.sofa.jraft.Lifecycle;
 import com.alipay.sofa.jraft.Status;
 import com.alipay.sofa.jraft.entity.Task;
@@ -64,11 +63,13 @@ import com.alipay.sofa.jraft.rhea.util.Maps;
 import com.alipay.sofa.jraft.rhea.util.NetUtil;
 import com.alipay.sofa.jraft.rhea.util.Strings;
 import com.alipay.sofa.jraft.rpc.RaftRpcServerFactory;
+import com.alipay.sofa.jraft.rpc.RpcServer;
 import com.alipay.sofa.jraft.util.BytesUtil;
+import com.alipay.sofa.jraft.util.Describer;
 import com.alipay.sofa.jraft.util.Endpoint;
 import com.alipay.sofa.jraft.util.ExecutorServiceHelper;
-import com.alipay.sofa.jraft.util.MetricThreadPoolExecutor;
 import com.alipay.sofa.jraft.util.Requires;
+import com.alipay.sofa.jraft.util.ThreadPoolMetricRegistry;
 import com.alipay.sofa.jraft.util.Utils;
 import com.codahale.metrics.ScheduledReporter;
 import com.codahale.metrics.Slf4jReporter;
@@ -90,6 +91,7 @@ public class StoreEngine implements Lifecycle<StoreEngineOptions> {
 
     private final ConcurrentMap<Long, RegionKVService> regionKVServiceTable = Maps.newConcurrentMapLong();
     private final ConcurrentMap<Long, RegionEngine>    regionEngineTable    = Maps.newConcurrentMapLong();
+    private final StateListenerContainer<Long>         stateListenerContainer;
     private final PlacementDriverClient                pdClient;
     private final long                                 clusterId;
 
@@ -117,9 +119,10 @@ public class StoreEngine implements Lifecycle<StoreEngineOptions> {
 
     private boolean                                    started;
 
-    public StoreEngine(PlacementDriverClient pdClient) {
-        this.pdClient = pdClient;
+    public StoreEngine(PlacementDriverClient pdClient, StateListenerContainer<Long> stateListenerContainer) {
+        this.pdClient = Requires.requireNonNull(pdClient, "pdClient");
         this.clusterId = pdClient.getClusterId();
+        this.stateListenerContainer = Requires.requireNonNull(stateListenerContainer, "stateListenerContainer");
     }
 
     @Override
@@ -177,7 +180,8 @@ public class StoreEngine implements Lifecycle<StoreEngineOptions> {
             this.raftStateTrigger = StoreEngineHelper.createRaftStateTrigger(opts.getLeaderStateTriggerCoreThreads());
         }
         if (this.snapshotExecutor == null) {
-            this.snapshotExecutor = StoreEngineHelper.createSnapshotExecutor(opts.getSnapshotCoreThreads());
+            this.snapshotExecutor = StoreEngineHelper.createSnapshotExecutor(opts.getSnapshotCoreThreads(),
+                opts.getSnapshotMaxThreads());
         }
         // init rpc executors
         final boolean useSharedRpcExecutor = opts.isUseSharedRpcExecutor();
@@ -195,16 +199,19 @@ public class StoreEngine implements Lifecycle<StoreEngineOptions> {
         // init metrics
         startMetricReporters(metricsReportPeriod);
         // init rpc server
-        this.rpcServer = new RpcServer(port, true, true);
-        RaftRpcServerFactory.addRaftRequestProcessors(this.rpcServer, this.raftRpcExecutor, this.cliRpcExecutor);
+        this.rpcServer = RaftRpcServerFactory.createRaftRpcServer(serverAddress, this.raftRpcExecutor,
+            this.cliRpcExecutor);
         StoreEngineHelper.addKvStoreRequestProcessor(this.rpcServer, this);
-        if (!this.rpcServer.start()) {
+        if (!this.rpcServer.init(null)) {
             LOG.error("Fail to init [RpcServer].");
             return false;
         }
         // init db store
         if (!initRawKVStore(opts)) {
             return false;
+        }
+        if (this.rawKVStore instanceof Describer) {
+            DescriberManager.getInstance().addDescriber((Describer) this.rawKVStore);
         }
         // init all region engine
         if (!initAllRegionEngine(opts, store)) {
@@ -234,7 +241,7 @@ public class StoreEngine implements Lifecycle<StoreEngineOptions> {
             return;
         }
         if (this.rpcServer != null) {
-            this.rpcServer.stop();
+            this.rpcServer.shutdown();
         }
         if (!this.regionEngineTable.isEmpty()) {
             for (final RegionEngine engine : this.regionEngineTable.values()) {
@@ -412,6 +419,10 @@ public class StoreEngine implements Lifecycle<StoreEngineOptions> {
         return false;
     }
 
+    public StateListenerContainer<Long> getStateListenerContainer() {
+        return stateListenerContainer;
+    }
+
     public List<Long> getLeaderRegionIds() {
         final List<Long> regionIds = Lists.newArrayListWithCapacity(this.regionEngineTable.size());
         for (final RegionEngine regionEngine : this.regionEngineTable.values()) {
@@ -566,7 +577,7 @@ public class StoreEngine implements Lifecycle<StoreEngineOptions> {
                 this.metricsScheduler = StoreEngineHelper.createMetricsScheduler();
             }
             // start threadPool metrics reporter
-            this.threadPoolMetricsReporter = Slf4jReporter.forRegistry(MetricThreadPoolExecutor.metricRegistry()) //
+            this.threadPoolMetricsReporter = Slf4jReporter.forRegistry(ThreadPoolMetricRegistry.metricRegistry()) //
                 .withLoggingLevel(Slf4jReporter.LoggingLevel.INFO) //
                 .outputTo(LOG) //
                 .scheduleOn(this.metricsScheduler) //

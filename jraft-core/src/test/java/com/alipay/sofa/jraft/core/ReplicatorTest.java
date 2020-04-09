@@ -17,6 +17,7 @@
 package com.alipay.sofa.jraft.core;
 
 import java.nio.ByteBuffer;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledFuture;
@@ -85,8 +86,7 @@ public class ReplicatorTest {
 
     @Before
     public void setup() {
-        this.timerManager = new TimerManager();
-        this.timerManager.init(5);
+        this.timerManager = new TimerManager(5);
         this.opts = new ReplicatorOptions();
         this.opts.setRaftRpcService(this.rpcService);
         this.opts.setPeerId(this.peerId);
@@ -104,7 +104,7 @@ public class ReplicatorTest {
         Mockito.when(this.logManager.getLastLogIndex()).thenReturn(10L);
         Mockito.when(this.logManager.getTerm(10)).thenReturn(1L);
         Mockito.when(this.rpcService.connect(this.peerId.getEndpoint())).thenReturn(true);
-        Mockito.when(this.node.getNodeMetrics()).thenReturn(new NodeMetrics(false));
+        Mockito.when(this.node.getNodeMetrics()).thenReturn(new NodeMetrics(true));
         // mock send empty entries
         mockSendEmptyEntries();
 
@@ -148,6 +148,19 @@ public class ReplicatorTest {
         r.destroy();
         Replicator.join(this.id);
         assertNull(r.id);
+    }
+
+    @Test
+    public void testMetricRemoveOnDestroy() {
+        assertNotNull(this.id);
+        final Replicator r = getReplicator();
+        assertNotNull(r);
+        assertSame(r.getOpts(), this.opts);
+        Set<String> metrics = this.opts.getNode().getNodeMetrics().getMetricRegistry().getNames();
+        assertEquals(6, metrics.size());
+        r.destroy();
+        metrics = this.opts.getNode().getNodeMetrics().getMetricRegistry().getNames();
+        assertEquals(1, metrics.size());
     }
 
     private Replicator getReplicator() {

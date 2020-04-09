@@ -41,10 +41,11 @@ import com.alipay.sofa.jraft.conf.Configuration;
 import com.alipay.sofa.jraft.entity.PeerId;
 import com.alipay.sofa.jraft.error.RaftError;
 import com.alipay.sofa.jraft.option.NodeOptions;
+import com.alipay.sofa.jraft.rhea.StateListenerContainer;
 import com.alipay.sofa.jraft.rhea.StoreEngine;
 import com.alipay.sofa.jraft.rhea.client.pd.FakePlacementDriverClient;
 import com.alipay.sofa.jraft.rhea.metadata.Region;
-import com.alipay.sofa.jraft.rhea.util.ThrowUtil;
+import com.alipay.sofa.jraft.util.internal.ThrowUtil;
 import com.alipay.sofa.jraft.util.BytesUtil;
 import com.alipay.sofa.jraft.util.Endpoint;
 
@@ -248,7 +249,7 @@ public class KVStateMachineTest {
         private final ExecutorService leaderStateTrigger = Executors.newSingleThreadExecutor();
 
         public MockStoreEngine() {
-            super(new MockPlacementDriverClient());
+            super(new MockPlacementDriverClient(), new StateListenerContainer<>());
         }
 
         @Override

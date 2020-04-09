@@ -20,12 +20,12 @@ import org.apache.commons.lang.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.alipay.remoting.rpc.RpcServer;
 import com.alipay.sofa.jraft.entity.PeerId;
 import com.alipay.sofa.jraft.option.NodeOptions;
 import com.alipay.sofa.jraft.option.RpcOptions;
 import com.alipay.sofa.jraft.rpc.ProtobufMsgFactory;
 import com.alipay.sofa.jraft.rpc.RaftRpcServerFactory;
+import com.alipay.sofa.jraft.rpc.RpcServer;
 import com.alipay.sofa.jraft.util.Endpoint;
 import com.alipay.sofa.jraft.util.Utils;
 
@@ -104,7 +104,7 @@ public class RaftGroupService {
      * Starts the raft group service, returns the raft node.
      */
     public synchronized Node start() {
-        return this.start(true);
+        return start(true);
     }
 
     /**
@@ -128,7 +128,7 @@ public class RaftGroupService {
 
         this.node = RaftServiceFactory.createAndInitRaftNode(this.groupId, this.serverId, this.nodeOptions);
         if (startRpcServer) {
-            this.rpcServer.start();
+            this.rpcServer.init(null);
         } else {
             LOG.warn("RPC server is not started in RaftGroupService.");
         }
@@ -146,6 +146,7 @@ public class RaftGroupService {
     public synchronized void join() throws InterruptedException {
         if (this.node != null) {
             this.node.join();
+            this.node = null;
         }
     }
 
@@ -156,18 +157,14 @@ public class RaftGroupService {
         if (this.rpcServer != null) {
             try {
                 if (!this.sharedRpcServer) {
-                    this.rpcServer.stop();
+                    this.rpcServer.shutdown();
                 }
-            } catch (final Exception e) {
+            } catch (final Exception ignored) {
                 // ignore
             }
             this.rpcServer = null;
         }
-        this.node.shutdown(status -> {
-            synchronized (this) {
-                this.node = null;
-            }
-        });
+        this.node.shutdown();
         NodeManager.getInstance().removeAddress(this.serverId.getEndpoint());
         this.started = false;
         LOG.info("Stop the RaftGroupService successfully.");
@@ -252,7 +249,7 @@ public class RaftGroupService {
         if (this.serverId == null) {
             throw new IllegalStateException("Please set serverId at first");
         }
-        if (rpcServer.port() != this.serverId.getPort()) {
+        if (rpcServer.boundPort() != this.serverId.getPort()) {
             throw new IllegalArgumentException("RPC server port mismatch");
         }
         this.rpcServer = rpcServer;

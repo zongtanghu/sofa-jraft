@@ -25,6 +25,8 @@ import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
@@ -37,7 +39,6 @@ import org.rocksdb.BackupEngine;
 import org.rocksdb.BackupInfo;
 import org.rocksdb.BackupableDBOptions;
 import org.rocksdb.BlockBasedTableConfig;
-import org.rocksdb.BloomFilter;
 import org.rocksdb.Checkpoint;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -45,7 +46,6 @@ import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
 import org.rocksdb.EnvOptions;
-import org.rocksdb.IndexType;
 import org.rocksdb.IngestExternalFileOptions;
 import org.rocksdb.Options;
 import org.rocksdb.ReadOptions;
@@ -61,7 +61,6 @@ import org.rocksdb.StatsCollectorInput;
 import org.rocksdb.StringAppendOperator;
 import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
-import org.rocksdb.util.SizeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,9 +78,12 @@ import com.alipay.sofa.jraft.rhea.util.StackTraceUtil;
 import com.alipay.sofa.jraft.rhea.util.concurrent.DistributedLock;
 import com.alipay.sofa.jraft.util.Bits;
 import com.alipay.sofa.jraft.util.BytesUtil;
+import com.alipay.sofa.jraft.util.DebugStatistics;
+import com.alipay.sofa.jraft.util.Describer;
 import com.alipay.sofa.jraft.util.Requires;
 import com.alipay.sofa.jraft.util.StorageOptionsFactory;
 import com.alipay.sofa.jraft.util.SystemPropertyUtil;
+import com.alipay.sofa.jraft.util.concurrent.AdjustableSemaphore;
 import com.codahale.metrics.Timer;
 
 /**
@@ -90,7 +92,7 @@ import com.codahale.metrics.Timer;
  * @author dennis
  * @author jiachun.fjc
  */
-public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
+public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> implements Describer {
 
     private static final Logger                LOG                  = LoggerFactory.getLogger(RocksRawKVStore.class);
 
@@ -102,6 +104,7 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
     public static final int                    MAX_BATCH_WRITE_SIZE = SystemPropertyUtil.getInt(
                                                                         "rhea.rocksdb.user.max_batch_write_size", 128);
 
+    private final AdjustableSemaphore          shutdownLock         = new AdjustableSemaphore();
     private final ReadWriteLock                readWriteLock        = new ReentrantReadWriteLock();
 
     private final AtomicLong                   databaseVersion      = new AtomicLong(0);
@@ -120,7 +123,7 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
     private RocksDBOptions                     opts;
     private DBOptions                          options;
     private WriteOptions                       writeOptions;
-    private Statistics                         statistics;
+    private DebugStatistics                    statistics;
     private RocksStatisticsCollector           statisticsCollector;
 
     @Override
@@ -135,7 +138,7 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
             this.opts = opts;
             this.options = createDBOptions();
             if (opts.isOpenStatisticsCollector()) {
-                this.statistics = new Statistics();
+                this.statistics = new DebugStatistics();
                 this.options.setStatistics(this.statistics);
                 final long intervalSeconds = opts.getStatisticsCallbackIntervalSeconds();
                 if (intervalSeconds > 0) {
@@ -161,6 +164,7 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
             // to reply to the data is the correct behavior.
             destroyRocksDB(opts);
             openRocksDB(opts);
+            this.shutdownLock.setMaxPermits(1);
             LOG.info("[RocksRawKVStore] start successfully, options: {}.", opts);
             return true;
         } catch (final Exception e) {
@@ -179,6 +183,7 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
             if (this.db == null) {
                 return;
             }
+            this.shutdownLock.setMaxPermits(0);
             closeRocksDB();
             if (this.defaultHandle != null) {
                 this.defaultHandle.close();
@@ -271,6 +276,26 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
         } catch (final Exception e) {
             LOG.error("Fail to [MULTI_GET], key size: [{}], {}.", keys.size(), StackTraceUtil.stackTrace(e));
             setFailure(closure, "Fail to [MULTI_GET]");
+        } finally {
+            readLock.unlock();
+            timeCtx.stop();
+        }
+    }
+
+    @Override
+    public void containsKey(final byte[] key, final KVStoreClosure closure) {
+        final Timer.Context timeCtx = getTimeContext("CONTAINS_KEY");
+        final Lock readLock = this.readWriteLock.readLock();
+        readLock.lock();
+        try {
+            boolean exists = false;
+            if (this.db.keyMayExist(key, new StringBuilder(0))) {
+                exists = this.db.get(key) != null;
+            }
+            setSuccess(closure, exists);
+        } catch (final Exception e) {
+            LOG.error("Fail to [CONTAINS_KEY], key: [{}], {}.", BytesUtil.toHex(key), StackTraceUtil.stackTrace(e));
+            setFailure(closure, "Fail to [CONTAINS_KEY]");
         } finally {
             readLock.unlock();
             timeCtx.stop();
@@ -1210,55 +1235,91 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
         return Requires.requireNonNull(this.opts, "opts").isFastSnapshot();
     }
 
-    void createSstFiles(final EnumMap<SstColumnFamily, File> sstFileTable, final byte[] startKey, final byte[] endKey) {
+    boolean isAsyncSnapshot() {
+        return Requires.requireNonNull(this.opts, "opts").isAsyncSnapshot();
+    }
+
+    CompletableFuture<Void> createSstFiles(final EnumMap<SstColumnFamily, File> sstFileTable, final byte[] startKey,
+                                           final byte[] endKey, final ExecutorService executor) {
+        final Snapshot snapshot;
+        final CompletableFuture<Void> sstFuture = new CompletableFuture<>();
+        final Lock readLock = this.readWriteLock.readLock();
+        readLock.lock();
+        try {
+            snapshot = this.db.getSnapshot();
+            if (!isAsyncSnapshot()) {
+                doCreateSstFiles(snapshot, sstFileTable, startKey, endKey, sstFuture);
+                return sstFuture;
+            }
+        } finally {
+            readLock.unlock();
+        }
+
+        // async snapshot
+        executor.execute(() -> doCreateSstFiles(snapshot, sstFileTable, startKey, endKey, sstFuture));
+        return sstFuture;
+    }
+
+    void doCreateSstFiles(final Snapshot snapshot, final EnumMap<SstColumnFamily, File> sstFileTable,
+                          final byte[] startKey, final byte[] endKey, final CompletableFuture<Void> future) {
         final Timer.Context timeCtx = getTimeContext("CREATE_SST_FILE");
         final Lock readLock = this.readWriteLock.readLock();
         readLock.lock();
-        final Snapshot snapshot = this.db.getSnapshot();
-        try (final ReadOptions readOptions = new ReadOptions();
-                final EnvOptions envOptions = new EnvOptions();
-                final Options options = new Options().setMergeOperator(new StringAppendOperator())) {
-            readOptions.setSnapshot(snapshot);
-            for (final Map.Entry<SstColumnFamily, File> entry : sstFileTable.entrySet()) {
-                final SstColumnFamily sstColumnFamily = entry.getKey();
-                final File sstFile = entry.getValue();
-                final ColumnFamilyHandle columnFamilyHandle = findColumnFamilyHandle(sstColumnFamily);
-                try (final RocksIterator it = this.db.newIterator(columnFamilyHandle, readOptions);
-                        final SstFileWriter sstFileWriter = new SstFileWriter(envOptions, options)) {
-                    if (startKey == null) {
-                        it.seekToFirst();
-                    } else {
-                        it.seek(startKey);
-                    }
-                    sstFileWriter.open(sstFile.getAbsolutePath());
-                    long count = 0;
-                    for (;;) {
-                        if (!it.isValid()) {
-                            break;
+        try {
+            if (!this.shutdownLock.isAvailable()) {
+                // KV store has shutdown, we do not release rocksdb's snapshot
+                future.completeExceptionally(new StorageException("KV store has shutdown."));
+                return;
+            }
+            try (final ReadOptions readOptions = new ReadOptions();
+                    final EnvOptions envOptions = new EnvOptions();
+                    final Options options = new Options().setMergeOperator(new StringAppendOperator())) {
+                readOptions.setSnapshot(snapshot);
+                for (final Map.Entry<SstColumnFamily, File> entry : sstFileTable.entrySet()) {
+                    final SstColumnFamily sstColumnFamily = entry.getKey();
+                    final File sstFile = entry.getValue();
+                    final ColumnFamilyHandle columnFamilyHandle = findColumnFamilyHandle(sstColumnFamily);
+                    try (final RocksIterator it = this.db.newIterator(columnFamilyHandle, readOptions);
+                            final SstFileWriter sstFileWriter = new SstFileWriter(envOptions, options)) {
+                        if (startKey == null) {
+                            it.seekToFirst();
+                        } else {
+                            it.seek(startKey);
                         }
-                        final byte[] key = it.key();
-                        if (endKey != null && BytesUtil.compare(key, endKey) >= 0) {
-                            break;
+                        sstFileWriter.open(sstFile.getAbsolutePath());
+                        long count = 0;
+                        for (;;) {
+                            if (!it.isValid()) {
+                                break;
+                            }
+                            final byte[] key = it.key();
+                            if (endKey != null && BytesUtil.compare(key, endKey) >= 0) {
+                                break;
+                            }
+                            sstFileWriter.put(key, it.value());
+                            ++count;
+                            it.next();
                         }
-                        sstFileWriter.put(key, it.value());
-                        ++count;
-                        it.next();
+                        if (count == 0) {
+                            sstFileWriter.close();
+                        } else {
+                            sstFileWriter.finish();
+                        }
+                        LOG.info("Finish sst file {} with {} keys.", sstFile, count);
+                    } catch (final RocksDBException e) {
+                        throw new StorageException("Fail to create sst file at path: " + sstFile, e);
                     }
-                    if (count == 0) {
-                        sstFileWriter.close();
-                    } else {
-                        sstFileWriter.finish();
-                    }
-                    LOG.info("Finish sst file {} with {} keys.", sstFile, count);
-                } catch (final RocksDBException e) {
-                    throw new StorageException("Fail to create sst file at path: " + sstFile, e);
                 }
+                future.complete(null);
+            } catch (final Throwable t) {
+                future.completeExceptionally(t);
+            } finally {
+                // Nothing to release, rocksDB never own the pointer for a snapshot.
+                snapshot.close();
+                // The pointer to the snapshot is released by the database instance.
+                this.db.releaseSnapshot(snapshot);
             }
         } finally {
-            // Nothing to release, rocksDB never own the pointer for a snapshot.
-            snapshot.close();
-            // The pointer to the snapshot is released by the database instance.
-            this.db.releaseSnapshot(snapshot);
             readLock.unlock();
             timeCtx.stop();
         }
@@ -1388,7 +1449,7 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
         }
     }
 
-    void writeSstSnapshot(final String snapshotPath, final Region region) {
+    CompletableFuture<Void> writeSstSnapshot(final String snapshotPath, final Region region, final ExecutorService executor) {
         final Timer.Context timeCtx = getTimeContext("WRITE_SST_SNAPSHOT");
         final Lock readLock = this.readWriteLock.readLock();
         readLock.lock();
@@ -1399,12 +1460,26 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
             FileUtils.forceMkdir(tempFile);
 
             final EnumMap<SstColumnFamily, File> sstFileTable = getSstFileTable(tempPath);
-            createSstFiles(sstFileTable, region.getStartKey(), region.getEndKey());
-            final File snapshotFile = new File(snapshotPath);
-            FileUtils.deleteDirectory(snapshotFile);
-            if (!tempFile.renameTo(snapshotFile)) {
-                throw new StorageException("Fail to rename [" + tempPath + "] to [" + snapshotPath + "].");
-            }
+            final CompletableFuture<Void> snapshotFuture = new CompletableFuture<>();
+            final CompletableFuture<Void> sstFuture = createSstFiles(sstFileTable, region.getStartKey(),
+                region.getEndKey(), executor);
+            sstFuture.whenComplete((aVoid, throwable) -> {
+                if (throwable == null) {
+                    try {
+                        final File snapshotFile = new File(snapshotPath);
+                        FileUtils.deleteDirectory(snapshotFile);
+                        if (!tempFile.renameTo(snapshotFile)) {
+                            throw new StorageException("Fail to rename [" + tempPath + "] to [" + snapshotPath + "].");
+                        }
+                        snapshotFuture.complete(null);
+                    } catch (final Throwable t) {
+                        snapshotFuture.completeExceptionally(t);
+                    }
+                } else {
+                    snapshotFuture.completeExceptionally(throwable);
+                }
+            });
+            return snapshotFuture;
         } catch (final Exception e) {
             throw new StorageException("Fail to do read sst snapshot at path: " + snapshotPath, e);
         } finally {
@@ -1480,25 +1555,6 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
         }
     }
 
-    // Creates the config for plain table sst format.
-    private static BlockBasedTableConfig createTableConfig() {
-        // See https://github.com/sofastack/sofa-jraft/pull/156
-        return new BlockBasedTableConfig() //
-            // Begin to use partitioned index filters
-            // https://github.com/facebook/rocksdb/wiki/Partitioned-Index-Filters#how-to-use-it
-            .setIndexType(IndexType.kTwoLevelIndexSearch) //
-            .setFilter(new BloomFilter(16, false)) //
-            .setPartitionFilters(true) //
-            .setMetadataBlockSize(8 * SizeUnit.KB) //
-            .setCacheIndexAndFilterBlocks(false) //
-            .setCacheIndexAndFilterBlocksWithHighPriority(true) //
-            .setPinL0FilterAndIndexBlocksInCache(true) //
-            // End of partitioned index filters settings.
-            .setBlockSize(4 * SizeUnit.KB)//
-            .setBlockCacheSize(512 * SizeUnit.MB) //
-            .setCacheNumShardBits(8);
-    }
-
     // Creates the rocksDB options, the user must take care
     // to close it after closing db.
     private static DBOptions createDBOptions() {
@@ -1509,7 +1565,7 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
     // Creates the column family options to control the behavior
     // of a database.
     private static ColumnFamilyOptions createColumnFamilyOptions() {
-        final BlockBasedTableConfig tConfig = createTableConfig();
+        final BlockBasedTableConfig tConfig = StorageOptionsFactory.getRocksDBTableFormatConfig(RocksRawKVStore.class);
         return StorageOptionsFactory.getRocksDBColumnFamilyOptions(RocksRawKVStore.class) //
             .setTableFormatConfig(tConfig) //
             .setMergeOperator(new StringAppendOperator());
@@ -1521,5 +1577,24 @@ public class RocksRawKVStore extends BatchRawKVStore<RocksDBOptions> {
         return new BackupableDBOptions(backupDBPath) //
             .setSync(true) //
             .setShareTableFiles(false); // don't share data between backups
+    }
+
+    @Override
+    public void describe(final Printer out) {
+        final Lock readLock = this.readWriteLock.readLock();
+        readLock.lock();
+        try {
+            if (this.db != null) {
+                out.println(this.db.getProperty("rocksdb.stats"));
+            }
+            out.println("");
+            if (this.statistics != null) {
+                out.println(this.statistics.getString());
+            }
+        } catch (final RocksDBException e) {
+            out.println(e);
+        } finally {
+            readLock.unlock();
+        }
     }
 }

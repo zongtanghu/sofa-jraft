@@ -27,7 +27,9 @@ import java.util.concurrent.TimeUnit;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TestName;
 
 import com.alipay.sofa.jraft.JRaftUtils;
 import com.alipay.sofa.jraft.Status;
@@ -66,14 +68,20 @@ public abstract class AbstractRheaKVStoreTest extends RheaKVTestCluster {
 
     public abstract StorageType getStorageType();
 
+    @Rule
+    public TestName testName = new TestName();
+
     @Before
     public void setup() throws Exception {
+        System.out.println(">>>>>>>>>>>>>>> Start test method: " + this.testName.getMethodName());
         super.start(getStorageType());
     }
 
     @After
     public void tearDown() throws Exception {
+        System.out.println(">>>>>>>>>>>>>>> Stopping test method: " + this.testName.getMethodName());
         super.shutdown();
+        System.out.println(">>>>>>>>>>>>>>> End test method: " + this.testName.getMethodName());
     }
 
     private void checkRegion(RheaKVStore store, byte[] key, long expectedRegionId) {
@@ -182,6 +190,46 @@ public abstract class AbstractRheaKVStoreTest extends RheaKVTestCluster {
     @Test
     public void multiGetByFollowerTest() {
         multiGetTest(getRandomFollowerStore());
+    }
+
+    /**
+     * Test method: {@link RheaKVStore#containsKey(byte[])}
+     */
+    private void containsKeyTest(RheaKVStore store) {
+        // regions: 1 -> [null, g), 2 -> [g, null)
+        byte[] key = makeKey("a_contains_key_test");
+        checkRegion(store, key, 1);
+        Boolean isContains = store.bContainsKey(key);
+        assertFalse(isContains);
+        byte[] value = makeValue("a_contains_key_test_value");
+        store.bPut(key, value);
+        assertTrue(store.bContainsKey(key));
+
+        key = makeKey("h_contains_key_test");
+        checkRegion(store, key, 2);
+        isContains = store.bContainsKey(key);
+        assertFalse(isContains);
+        value = makeValue("h_contains_key_test_value");
+        store.bPut(key, value);
+        assertTrue(store.bContainsKey(key));
+
+        key = makeKey("z_contains_key_test");
+        checkRegion(store, key, 2);
+        isContains = store.bContainsKey(key);
+        assertFalse(isContains);
+        value = makeValue("z_contains_key_test_value");
+        store.bPut(key, value);
+        assertTrue(store.bContainsKey(key));
+    }
+
+    @Test
+    public void containsKeyByLeaderTest() {
+        containsKeyTest(getRandomLeaderStore());
+    }
+
+    @Test
+    public void containsKeyByFollowerTest() {
+        containsKeyTest(getRandomFollowerStore());
     }
 
     /**

@@ -20,6 +20,7 @@ import com.alipay.remoting.util.StringUtils;
 import com.alipay.sofa.jraft.JRaftServiceFactory;
 import com.alipay.sofa.jraft.StateMachine;
 import com.alipay.sofa.jraft.conf.Configuration;
+import com.alipay.sofa.jraft.core.ElectionPriority;
 import com.alipay.sofa.jraft.storage.SnapshotThrottle;
 import com.alipay.sofa.jraft.util.Copiable;
 import com.alipay.sofa.jraft.util.JRaftServiceLoader;
@@ -42,6 +43,17 @@ public class NodeOptions extends RpcOptions implements Copiable<NodeOptions> {
     // Default: 1000 (1s)
     private int                             electionTimeoutMs      = 1000;                                         // follower to candidate timeout
 
+    // One node's local priority value would be set to | electionPriority |
+    // value when it starts up.If this value is set to 0,the node will never be a leader.
+    // If this node doesn't support priority election,then set this value to -1.
+    // Default: -1
+    private int                             electionPriority       = ElectionPriority.Disabled;
+
+    // If next leader is not elected until next election timeout, it exponentially
+    // decay its local target priority, for example target_priority = target_priority - gap
+    // Default: 10
+    private int                             decayPriorityGap       = 10;
+
     // Leader lease time's ratio of electionTimeoutMs,
     // To minimize the effects of clock drift, we should make that:
     // clockDrift + leaderLeaseTimeoutMs < electionTimeout
@@ -54,6 +66,15 @@ public class NodeOptions extends RpcOptions implements Copiable<NodeOptions> {
     //
     // Default: 3600 (1 hour)
     private int                             snapshotIntervalSecs   = 3600;
+
+    // A snapshot saving would be triggered every |snapshot_interval_s| seconds,
+    // and at this moment when state machine's lastAppliedIndex value
+    // minus lastSnapshotId value is greater than snapshotLogIndexMargin value,
+    // the snapshot action will be done really.
+    // If |snapshotLogIndexMargin| <= 0, the distance based snapshot would be disable.
+    //
+    // Default: 0
+    private int                             snapshotLogIndexMargin = 0;
 
     // We will regard a adding peer as caught up if the margin between the
     // last_log_index of this peer and the last_log_index of leader is less than
@@ -98,6 +119,10 @@ public class NodeOptions extends RpcOptions implements Copiable<NodeOptions> {
     private boolean                         disableCli             = false;
 
     /**
+     * Whether use global timer pool, if true, the {@code timerPoolSize} will be invalid.
+     */
+    private boolean                         sharedTimerPool        = false;
+    /**
      * Timer manager thread pool size
      */
     private int                             timerPoolSize          = Utils.cpus() * 3 > 20 ? 20 : Utils.cpus() * 3;
@@ -120,6 +145,23 @@ public class NodeOptions extends RpcOptions implements Copiable<NodeOptions> {
      * Default: NULL
      */
     private SnapshotThrottle                snapshotThrottle;
+
+    /**
+     * Whether use global election timer
+     */
+    private boolean                         sharedElectionTimer    = false;
+    /**
+     * Whether use global vote timer
+     */
+    private boolean                         sharedVoteTimer        = false;
+    /**
+     * Whether use global step down timer
+     */
+    private boolean                         sharedStepDownTimer    = false;
+    /**
+     * Whether use global snapshot timer
+     */
+    private boolean                         sharedSnapshotTimer    = false;
 
     /**
      * Custom service factory.
@@ -171,6 +213,14 @@ public class NodeOptions extends RpcOptions implements Copiable<NodeOptions> {
         this.raftRpcThreadPoolSize = raftRpcThreadPoolSize;
     }
 
+    public boolean isSharedTimerPool() {
+        return sharedTimerPool;
+    }
+
+    public void setSharedTimerPool(boolean sharedTimerPool) {
+        this.sharedTimerPool = sharedTimerPool;
+    }
+
     public int getTimerPoolSize() {
         return this.timerPoolSize;
     }
@@ -197,6 +247,22 @@ public class NodeOptions extends RpcOptions implements Copiable<NodeOptions> {
         if (this.fsm == null) {
             throw new IllegalArgumentException("Null stateMachine");
         }
+    }
+
+    public int getElectionPriority() {
+        return electionPriority;
+    }
+
+    public void setElectionPriority(int electionPriority) {
+        this.electionPriority = electionPriority;
+    }
+
+    public int getDecayPriorityGap() {
+        return decayPriorityGap;
+    }
+
+    public void setDecayPriorityGap(int decayPriorityGap) {
+        this.decayPriorityGap = decayPriorityGap;
     }
 
     public int getElectionTimeoutMs() {
@@ -229,6 +295,14 @@ public class NodeOptions extends RpcOptions implements Copiable<NodeOptions> {
 
     public void setSnapshotIntervalSecs(final int snapshotIntervalSecs) {
         this.snapshotIntervalSecs = snapshotIntervalSecs;
+    }
+
+    public int getSnapshotLogIndexMargin() {
+        return snapshotLogIndexMargin;
+    }
+
+    public void setSnapshotLogIndexMargin(int snapshotLogIndexMargin) {
+        this.snapshotLogIndexMargin = snapshotLogIndexMargin;
     }
 
     public int getCatchupMargin() {
@@ -295,32 +369,75 @@ public class NodeOptions extends RpcOptions implements Copiable<NodeOptions> {
         this.disableCli = disableCli;
     }
 
+    public boolean isSharedElectionTimer() {
+        return sharedElectionTimer;
+    }
+
+    public void setSharedElectionTimer(boolean sharedElectionTimer) {
+        this.sharedElectionTimer = sharedElectionTimer;
+    }
+
+    public boolean isSharedVoteTimer() {
+        return sharedVoteTimer;
+    }
+
+    public void setSharedVoteTimer(boolean sharedVoteTimer) {
+        this.sharedVoteTimer = sharedVoteTimer;
+    }
+
+    public boolean isSharedStepDownTimer() {
+        return sharedStepDownTimer;
+    }
+
+    public void setSharedStepDownTimer(boolean sharedStepDownTimer) {
+        this.sharedStepDownTimer = sharedStepDownTimer;
+    }
+
+    public boolean isSharedSnapshotTimer() {
+        return sharedSnapshotTimer;
+    }
+
+    public void setSharedSnapshotTimer(boolean sharedSnapshotTimer) {
+        this.sharedSnapshotTimer = sharedSnapshotTimer;
+    }
+
     @Override
     public NodeOptions copy() {
         final NodeOptions nodeOptions = new NodeOptions();
         nodeOptions.setElectionTimeoutMs(this.electionTimeoutMs);
+        nodeOptions.setElectionPriority(this.electionPriority);
+        nodeOptions.setDecayPriorityGap(this.decayPriorityGap);
         nodeOptions.setSnapshotIntervalSecs(this.snapshotIntervalSecs);
+        nodeOptions.setSnapshotLogIndexMargin(this.snapshotLogIndexMargin);
         nodeOptions.setCatchupMargin(this.catchupMargin);
         nodeOptions.setFilterBeforeCopyRemote(this.filterBeforeCopyRemote);
         nodeOptions.setDisableCli(this.disableCli);
+        nodeOptions.setSharedTimerPool(this.sharedTimerPool);
         nodeOptions.setTimerPoolSize(this.timerPoolSize);
         nodeOptions.setCliRpcThreadPoolSize(this.cliRpcThreadPoolSize);
         nodeOptions.setRaftRpcThreadPoolSize(this.raftRpcThreadPoolSize);
         nodeOptions.setEnableMetrics(this.enableMetrics);
         nodeOptions.setRaftOptions(this.raftOptions == null ? new RaftOptions() : this.raftOptions.copy());
+        nodeOptions.setSharedElectionTimer(this.sharedElectionTimer);
+        nodeOptions.setSharedVoteTimer(this.sharedVoteTimer);
+        nodeOptions.setSharedStepDownTimer(this.sharedStepDownTimer);
+        nodeOptions.setSharedSnapshotTimer(this.sharedSnapshotTimer);
         return nodeOptions;
     }
 
     @Override
     public String toString() {
-        return "NodeOptions [electionTimeoutMs=" + this.electionTimeoutMs + ", leaderLeaseTimeRatio="
-               + this.leaderLeaseTimeRatio + ", snapshotIntervalSecs=" + this.snapshotIntervalSecs + ", catchupMargin="
-               + this.catchupMargin + ", initialConf=" + this.initialConf + ", fsm=" + this.fsm + ", logUri="
-               + this.logUri + ", raftMetaUri=" + this.raftMetaUri + ", snapshotUri=" + this.snapshotUri
-               + ", filterBeforeCopyRemote=" + this.filterBeforeCopyRemote + ", disableCli=" + this.disableCli
-               + ", timerPoolSize=" + this.timerPoolSize + ", cliRpcThreadPoolSize=" + this.cliRpcThreadPoolSize
-               + ", raftRpcThreadPoolSize=" + this.raftRpcThreadPoolSize + ", enableMetrics=" + this.enableMetrics
-               + ", snapshotThrottle=" + this.snapshotThrottle + ", serviceFactory=" + this.serviceFactory
-               + ", raftOptions=" + this.raftOptions + "]";
+        return "NodeOptions{" + "electionTimeoutMs=" + electionTimeoutMs + ", electionPriority=" + electionPriority
+               + ", decayPriorityGap=" + decayPriorityGap + ", leaderLeaseTimeRatio=" + leaderLeaseTimeRatio
+               + ", snapshotIntervalSecs=" + snapshotIntervalSecs + ", snapshotLogIndexMargin="
+               + snapshotLogIndexMargin + ", catchupMargin=" + catchupMargin + ", initialConf=" + initialConf
+               + ", fsm=" + fsm + ", logUri='" + logUri + '\'' + ", raftMetaUri='" + raftMetaUri + '\''
+               + ", snapshotUri='" + snapshotUri + '\'' + ", filterBeforeCopyRemote=" + filterBeforeCopyRemote
+               + ", disableCli=" + disableCli + ", sharedTimerPool=" + sharedTimerPool + ", timerPoolSize="
+               + timerPoolSize + ", cliRpcThreadPoolSize=" + cliRpcThreadPoolSize + ", raftRpcThreadPoolSize="
+               + raftRpcThreadPoolSize + ", enableMetrics=" + enableMetrics + ", snapshotThrottle=" + snapshotThrottle
+               + ", sharedElectionTimer=" + sharedElectionTimer + ", sharedVoteTimer=" + sharedVoteTimer
+               + ", sharedStepDownTimer=" + sharedStepDownTimer + ", sharedSnapshotTimer=" + sharedSnapshotTimer
+               + ", serviceFactory=" + serviceFactory + ", raftOptions=" + raftOptions + "} " + super.toString();
     }
 }

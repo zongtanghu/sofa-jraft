@@ -16,12 +16,12 @@
  */
 package com.alipay.sofa.jraft.test;
 
-import java.io.File;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
@@ -34,6 +34,7 @@ import com.alipay.sofa.jraft.entity.LogEntry;
 import com.alipay.sofa.jraft.entity.LogId;
 import com.alipay.sofa.jraft.entity.PeerId;
 import com.alipay.sofa.jraft.rpc.RpcRequests;
+import com.alipay.sofa.jraft.util.Endpoint;
 
 /**
  * Test helper
@@ -51,7 +52,7 @@ public class TestUtils {
     }
 
     public static String mkTempDir() {
-        return System.getProperty("java.io.tmpdir", "/tmp") + File.separator + "jraft_test_" + System.nanoTime();
+        return Paths.get(System.getProperty("java.io.tmpdir", "/tmp"), "jraft_test_" + System.nanoTime()).toString();
     }
 
     public static LogEntry mockEntry(final int index, final int term) {
@@ -123,6 +124,16 @@ public class TestUtils {
         List<PeerId> ret = new ArrayList<>();
         for (int i = 0; i < n; i++) {
             ret.add(new PeerId(getMyIp(), INIT_PORT + i));
+        }
+        return ret;
+    }
+
+    public static List<PeerId> generatePriorityPeers(final int n, List<Integer> priorities) {
+        List<PeerId> ret = new ArrayList<>();
+        for (int i = 0; i < n; i++) {
+            Endpoint endpoint = new Endpoint(getMyIp(), INIT_PORT + i);
+            PeerId peerId = new PeerId(endpoint, 0, priorities.get(i));
+            ret.add(peerId);
         }
         return ret;
     }

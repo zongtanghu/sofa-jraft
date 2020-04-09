@@ -16,19 +16,11 @@
  */
 package com.alipay.sofa.jraft.example.counter.rpc;
 
-import java.nio.ByteBuffer;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
-import com.alipay.remoting.AsyncContext;
-import com.alipay.remoting.BizContext;
-import com.alipay.remoting.exception.CodecException;
-import com.alipay.remoting.rpc.protocol.AsyncUserProcessor;
-import com.alipay.remoting.serialization.SerializerManager;
-import com.alipay.sofa.jraft.entity.Task;
-import com.alipay.sofa.jraft.example.counter.CounterServer;
-import com.alipay.sofa.jraft.example.counter.IncrementAndAddClosure;
+import com.alipay.sofa.jraft.Status;
+import com.alipay.sofa.jraft.example.counter.CounterClosure;
+import com.alipay.sofa.jraft.example.counter.CounterService;
+import com.alipay.sofa.jraft.rpc.RpcContext;
+import com.alipay.sofa.jraft.rpc.RpcProcessor;
 
 /**
  * IncrementAndGetRequest processor.
@@ -37,48 +29,25 @@ import com.alipay.sofa.jraft.example.counter.IncrementAndAddClosure;
  *
  * 2018-Apr-09 5:43:57 PM
  */
-public class IncrementAndGetRequestProcessor extends AsyncUserProcessor<IncrementAndGetRequest> {
+public class IncrementAndGetRequestProcessor implements RpcProcessor<IncrementAndGetRequest> {
 
-    private static final Logger LOG = LoggerFactory.getLogger(IncrementAndGetRequestProcessor.class);
+    private final CounterService counterService;
 
-    private final CounterServer counterServer;
-
-    public IncrementAndGetRequestProcessor(CounterServer counterServer) {
+    public IncrementAndGetRequestProcessor(CounterService counterService) {
         super();
-        this.counterServer = counterServer;
+        this.counterService = counterService;
     }
 
     @Override
-    public void handleRequest(final BizContext bizCtx, final AsyncContext asyncCtx, final IncrementAndGetRequest request) {
-        if (!this.counterServer.getFsm().isLeader()) {
-            asyncCtx.sendResponse(this.counterServer.redirect());
-            return;
-        }
+    public void handleRequest(final RpcContext rpcCtx, final IncrementAndGetRequest request) {
+        final CounterClosure closure = new CounterClosure() {
+            @Override
+            public void run(Status status) {
+                rpcCtx.sendResponse(getValueResponse());
+            }
+        };
 
-        final ValueResponse response = new ValueResponse();
-        final IncrementAndAddClosure closure = new IncrementAndAddClosure(counterServer, request, response,
-                status -> {
-                    if (!status.isOk()) {
-                        response.setErrorMsg(status.getErrorMsg());
-                        response.setSuccess(false);
-                    }
-                    asyncCtx.sendResponse(response);
-                });
-
-        try {
-            final Task task = new Task();
-            task.setDone(closure);
-            task.setData(ByteBuffer
-                .wrap(SerializerManager.getSerializer(SerializerManager.Hessian2).serialize(request)));
-
-            // apply task to raft group.
-            counterServer.getNode().apply(task);
-        } catch (final CodecException e) {
-            LOG.error("Fail to encode IncrementAndGetRequest", e);
-            response.setSuccess(false);
-            response.setErrorMsg(e.getMessage());
-            asyncCtx.sendResponse(response);
-        }
+        this.counterService.incrementAndGet(request.getDelta(), closure);
     }
 
     @Override

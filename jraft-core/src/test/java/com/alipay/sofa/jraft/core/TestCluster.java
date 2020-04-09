@@ -20,6 +20,9 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -30,7 +33,6 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.io.FileUtils;
 
-import com.alipay.remoting.rpc.RpcServer;
 import com.alipay.sofa.jraft.JRaftServiceFactory;
 import com.alipay.sofa.jraft.Node;
 import com.alipay.sofa.jraft.RaftGroupService;
@@ -39,6 +41,7 @@ import com.alipay.sofa.jraft.entity.PeerId;
 import com.alipay.sofa.jraft.option.NodeOptions;
 import com.alipay.sofa.jraft.option.RaftOptions;
 import com.alipay.sofa.jraft.rpc.RaftRpcServerFactory;
+import com.alipay.sofa.jraft.rpc.RpcServer;
 import com.alipay.sofa.jraft.storage.SnapshotThrottle;
 import com.alipay.sofa.jraft.util.Endpoint;
 
@@ -49,16 +52,45 @@ import com.alipay.sofa.jraft.util.Endpoint;
  * 2018-Apr-20 1:41:17 PM
  */
 public class TestCluster {
+
+    static class Clusters {
+
+        public final IdentityHashMap<TestCluster, Object> needCloses = new IdentityHashMap<>();
+        private final Object                              EXIST      = new Object();
+
+        public synchronized void add(final TestCluster cluster) {
+            this.needCloses.put(cluster, EXIST);
+        }
+
+        public synchronized boolean remove(final TestCluster cluster) {
+            return this.needCloses.remove(cluster) != null;
+        }
+
+        public synchronized boolean isEmpty() {
+            return this.needCloses.isEmpty();
+        }
+
+        public synchronized List<TestCluster> removeAll() {
+            final List<TestCluster> clusters = new ArrayList<>(this.needCloses.keySet());
+            this.needCloses.clear();
+            return clusters;
+        }
+    }
+
+    public static final Clusters                          CLUSTERS           = new Clusters();
+
     private final String                                  dataPath;
     private final String                                  name;                                              // groupId
     private final List<PeerId>                            peers;
     private final List<NodeImpl>                          nodes;
-    private final List<MockStateMachine>                  fsms;
+    private final LinkedHashMap<PeerId, MockStateMachine> fsms;
     private final ConcurrentMap<String, RaftGroupService> serverMap          = new ConcurrentHashMap<>();
     private final int                                     electionTimeoutMs;
     private final Lock                                    lock               = new ReentrantLock();
 
     private JRaftServiceFactory                           raftServiceFactory = new TestJRaftServiceFactory();
+
+    private LinkedHashSet<PeerId>                         learners;
 
     public JRaftServiceFactory getRaftServiceFactory() {
         return this.raftServiceFactory;
@@ -66,6 +98,14 @@ public class TestCluster {
 
     public void setRaftServiceFactory(final JRaftServiceFactory raftServiceFactory) {
         this.raftServiceFactory = raftServiceFactory;
+    }
+
+    public LinkedHashSet<PeerId> getLearners() {
+        return this.learners;
+    }
+
+    public void setLearners(final LinkedHashSet<PeerId> learners) {
+        this.learners = learners;
     }
 
     public List<PeerId> getPeers() {
@@ -77,17 +117,33 @@ public class TestCluster {
     }
 
     public TestCluster(final String name, final String dataPath, final List<PeerId> peers, final int electionTimeoutMs) {
+        this(name, dataPath, peers, new LinkedHashSet<>(), 300);
+    }
+
+    public TestCluster(final String name, final String dataPath, final List<PeerId> peers,
+                       final LinkedHashSet<PeerId> learners, final int electionTimeoutMs) {
         super();
         this.name = name;
         this.dataPath = dataPath;
         this.peers = peers;
         this.nodes = new ArrayList<>(this.peers.size());
-        this.fsms = new ArrayList<>(this.peers.size());
+        this.fsms = new LinkedHashMap<>(this.peers.size());
         this.electionTimeoutMs = electionTimeoutMs;
+        this.learners = learners;
+        CLUSTERS.add(this);
     }
 
     public boolean start(final Endpoint addr) throws Exception {
         return this.start(addr, false, 300);
+    }
+
+    public boolean start(final Endpoint addr, final int priority) throws Exception {
+        return this.start(addr, false, 300, false, null, null, priority);
+    }
+
+    public boolean startLearner(final PeerId peer) throws Exception {
+        this.learners.add(peer);
+        return this.start(peer.getEndpoint(), false, 300);
     }
 
     public boolean start(final Endpoint listenAddr, final boolean emptyPeers, final int snapshotIntervalSecs)
@@ -103,6 +159,56 @@ public class TestCluster {
     public boolean start(final Endpoint listenAddr, final boolean emptyPeers, final int snapshotIntervalSecs,
                          final boolean enableMetrics, final SnapshotThrottle snapshotThrottle) throws IOException {
         return this.start(listenAddr, emptyPeers, snapshotIntervalSecs, enableMetrics, snapshotThrottle, null);
+    }
+
+    public boolean start(final Endpoint listenAddr, final boolean emptyPeers, final int snapshotIntervalSecs,
+                         final boolean enableMetrics, final SnapshotThrottle snapshotThrottle,
+                         final RaftOptions raftOptions, final int priority) throws IOException {
+
+        if (this.serverMap.get(listenAddr.toString()) != null) {
+            return true;
+        }
+
+        final NodeOptions nodeOptions = new NodeOptions();
+        nodeOptions.setElectionTimeoutMs(this.electionTimeoutMs);
+        nodeOptions.setEnableMetrics(enableMetrics);
+        nodeOptions.setSnapshotThrottle(snapshotThrottle);
+        nodeOptions.setSnapshotIntervalSecs(snapshotIntervalSecs);
+        nodeOptions.setServiceFactory(this.raftServiceFactory);
+        if (raftOptions != null) {
+            nodeOptions.setRaftOptions(raftOptions);
+        }
+        final String serverDataPath = this.dataPath + File.separator + listenAddr.toString().replace(':', '_');
+        FileUtils.forceMkdir(new File(serverDataPath));
+        nodeOptions.setLogUri(serverDataPath + File.separator + "logs");
+        nodeOptions.setRaftMetaUri(serverDataPath + File.separator + "meta");
+        nodeOptions.setSnapshotUri(serverDataPath + File.separator + "snapshot");
+        nodeOptions.setElectionPriority(priority);
+
+        final MockStateMachine fsm = new MockStateMachine(listenAddr);
+        nodeOptions.setFsm(fsm);
+
+        if (!emptyPeers) {
+            nodeOptions.setInitialConf(new Configuration(this.peers, this.learners));
+        }
+
+        final RpcServer rpcServer = RaftRpcServerFactory.createRaftRpcServer(listenAddr);
+        final RaftGroupService server = new RaftGroupService(this.name, new PeerId(listenAddr, 0, priority),
+            nodeOptions, rpcServer);
+
+        this.lock.lock();
+        try {
+            if (this.serverMap.put(listenAddr.toString(), server) == null) {
+                final Node node = server.start();
+
+                this.fsms.put(new PeerId(listenAddr, 0), fsm);
+                this.nodes.add((NodeImpl) node);
+                return true;
+            }
+        } finally {
+            this.lock.unlock();
+        }
+        return false;
     }
 
     public boolean start(final Endpoint listenAddr, final boolean emptyPeers, final int snapshotIntervalSecs,
@@ -131,7 +237,7 @@ public class TestCluster {
         nodeOptions.setFsm(fsm);
 
         if (!emptyPeers) {
-            nodeOptions.setInitialConf(new Configuration(this.peers));
+            nodeOptions.setInitialConf(new Configuration(this.peers, this.learners));
         }
 
         final RpcServer rpcServer = RaftRpcServerFactory.createRaftRpcServer(listenAddr);
@@ -143,7 +249,7 @@ public class TestCluster {
             if (this.serverMap.put(listenAddr.toString(), server) == null) {
                 final Node node = server.start();
 
-                this.fsms.add(fsm);
+                this.fsms.put(new PeerId(listenAddr, 0), fsm);
                 this.nodes.add((NodeImpl) node);
                 return true;
             }
@@ -153,10 +259,19 @@ public class TestCluster {
         return false;
     }
 
+    public MockStateMachine getFsmByPeer(final PeerId peer) {
+        this.lock.lock();
+        try {
+            return this.fsms.get(peer);
+        } finally {
+            this.lock.unlock();
+        }
+    }
+
     public List<MockStateMachine> getFsms() {
         this.lock.lock();
         try {
-            return new ArrayList<>(this.fsms);
+            return new ArrayList<>(this.fsms.values());
         } finally {
             this.lock.unlock();
         }
@@ -167,8 +282,8 @@ public class TestCluster {
         final CountDownLatch latch = new CountDownLatch(1);
         if (node != null) {
             node.shutdown(new ExpectClosure(latch));
-            latch.await();
             node.join();
+            latch.await();
         }
         final RaftGroupService raftGroupService = this.serverMap.remove(listenAddr.toString());
         raftGroupService.shutdown();
@@ -188,6 +303,7 @@ public class TestCluster {
         for (final Node node : nodes) {
             node.join();
         }
+        CLUSTERS.remove(this);
     }
 
     public void clean(final Endpoint listenAddr) throws IOException {
@@ -201,7 +317,7 @@ public class TestCluster {
         try {
             for (int i = 0; i < this.nodes.size(); i++) {
                 final NodeImpl node = this.nodes.get(i);
-                if (node.isLeader() && this.fsms.get(i).getLeaderTerm() == node.getCurrentTerm()) {
+                if (node.isLeader() && this.fsms.get(node.getServerId()).getLeaderTerm() == node.getCurrentTerm()) {
                     return node;
                 }
             }
@@ -235,7 +351,7 @@ public class TestCluster {
         this.lock.lock();
         try {
             for (final NodeImpl node : this.nodes) {
-                if (!node.isLeader()) {
+                if (!node.isLeader() && !this.learners.contains(node.getServerId())) {
                     ret.add(node);
                 }
             }
@@ -280,7 +396,7 @@ public class TestCluster {
         this.lock.lock();
         try {
             return this.nodes.stream().map(node -> node.getNodeId().getPeerId().getEndpoint())
-                    .collect(Collectors.toList());
+                .collect(Collectors.toList());
         } finally {
             this.lock.unlock();
         }
@@ -293,7 +409,7 @@ public class TestCluster {
             for (int i = 0; i < this.nodes.size(); i++) {
                 if (this.nodes.get(i).getNodeId().getPeerId().getEndpoint().equals(addr)) {
                     ret = this.nodes.remove(i);
-                    this.fsms.remove(i);
+                    this.fsms.remove(ret.getNodeId().getPeerId());
                     break;
                 }
             }
@@ -315,13 +431,15 @@ public class TestCluster {
      */
     public boolean ensureSame(final int waitTimes) throws InterruptedException {
         this.lock.lock();
-        if (this.fsms.size() <= 1) {
+        List<MockStateMachine> fsmList = new ArrayList<>(this.fsms.values());
+        if (fsmList.size() <= 1) {
             this.lock.unlock();
             return true;
         }
+        System.out.println("Start ensureSame, waitTimes=" + waitTimes);
         try {
             int nround = 0;
-            final MockStateMachine first = this.fsms.get(0);
+            final MockStateMachine first = fsmList.get(0);
             CHECK: while (true) {
                 first.lock();
                 if (first.getLogs().isEmpty()) {
@@ -334,8 +452,8 @@ public class TestCluster {
                     continue CHECK;
                 }
 
-                for (int i = 1; i < this.fsms.size(); i++) {
-                    final MockStateMachine fsm = this.fsms.get(i);
+                for (int i = 1; i < fsmList.size(); i++) {
+                    final MockStateMachine fsm = fsmList.get(i);
                     fsm.lock();
                     if (fsm.getLogs().size() != first.getLogs().size()) {
                         fsm.unlock();
@@ -370,6 +488,7 @@ public class TestCluster {
             return true;
         } finally {
             this.lock.unlock();
+            System.out.println("End ensureSame, waitTimes=" + waitTimes);
         }
     }
 }
