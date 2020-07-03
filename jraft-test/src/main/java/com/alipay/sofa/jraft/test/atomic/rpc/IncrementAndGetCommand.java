@@ -14,21 +14,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.alipay.sofa.jraft.test.atomic.command;
+package com.alipay.sofa.jraft.test.atomic.rpc;
 
 import java.io.Serializable;
-import java.util.TreeMap;
 
-public class SlotsResponseCommand extends BooleanCommand implements Serializable {
-    private static final long     serialVersionUID = -3155350383161976585L;
-    private TreeMap<Long, String> map              = new TreeMap<>();
+/**
+ * Increment with detal and get the latest value.
+ * @author boyan (boyan@alibaba-inc.com)
+ *
+ * 2018-Apr-25 1:28:42 PM
+ */
+public class IncrementAndGetCommand extends BaseRequestCommand implements Serializable {
+    private static final long serialVersionUID = -1232443841104358771L;
+    private long              detal;
 
-    public TreeMap<Long, String> getMap() {
-        return this.map;
+    public long getDetal() {
+        return this.detal;
     }
 
-    public void setMap(TreeMap<Long, String> map) {
-        this.map = map;
+    public void setDetal(long detal) {
+        this.detal = detal;
     }
 
 }

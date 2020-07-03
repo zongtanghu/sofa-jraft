@@ -16,24 +16,24 @@
  */
 package com.alipay.sofa.jraft.test.atomic.server.processor;
 
-import com.alipay.sofa.jraft.test.atomic.command.CompareAndSetCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.SetCommand;
 import com.alipay.sofa.jraft.test.atomic.server.AtomicServer;
 import com.alipay.sofa.jraft.test.atomic.server.CommandType;
 
-public class CompareAndSetCommandProcessor extends BaseAsyncUserProcessor<CompareAndSetCommand> {
+public class SetRequestProcessor extends BaseAsyncUserProcessor<SetCommand> {
 
     @Override
     protected CommandType getCmdType() {
-        return CommandType.CAS;
+        return CommandType.SET;
     }
 
-    public CompareAndSetCommandProcessor(AtomicServer server) {
+    public SetRequestProcessor(AtomicServer server) {
         super(server);
     }
 
     @Override
     public String interest() {
-        return CompareAndSetCommand.class.getName();
+        return SetCommand.class.getName();
     }
 
 }

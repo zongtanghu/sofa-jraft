@@ -14,26 +14,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.alipay.sofa.jraft.test.atomic.server.processor;
+package com.alipay.sofa.jraft.test.atomic.rpc;
 
-import com.alipay.sofa.jraft.test.atomic.command.SetCommand;
-import com.alipay.sofa.jraft.test.atomic.server.AtomicServer;
-import com.alipay.sofa.jraft.test.atomic.server.CommandType;
+public class BaseRequestCommand {
+    private String key;
 
-public class SetCommandProcessor extends BaseAsyncUserProcessor<SetCommand> {
-
-    @Override
-    protected CommandType getCmdType() {
-        return CommandType.SET;
+    public String getKey() {
+        return this.key;
     }
 
-    public SetCommandProcessor(AtomicServer server) {
-        super(server);
-    }
-
-    @Override
-    public String interest() {
-        return SetCommand.class.getName();
+    public void setKey(String key) {
+        this.key = key;
     }
 
 }

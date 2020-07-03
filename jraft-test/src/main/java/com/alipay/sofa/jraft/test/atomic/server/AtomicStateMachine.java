@@ -34,14 +34,14 @@ import com.alipay.sofa.jraft.error.RaftException;
 import com.alipay.sofa.jraft.storage.snapshot.SnapshotReader;
 import com.alipay.sofa.jraft.storage.snapshot.SnapshotWriter;
 import com.alipay.sofa.jraft.test.atomic.KeyNotFoundException;
-import com.alipay.sofa.jraft.test.atomic.command.BaseRequestCommand;
-import com.alipay.sofa.jraft.test.atomic.command.BooleanCommand;
-import com.alipay.sofa.jraft.test.atomic.command.CommandCodec;
-import com.alipay.sofa.jraft.test.atomic.command.CompareAndSetCommand;
-import com.alipay.sofa.jraft.test.atomic.command.GetCommand;
-import com.alipay.sofa.jraft.test.atomic.command.IncrementAndGetCommand;
-import com.alipay.sofa.jraft.test.atomic.command.SetCommand;
-import com.alipay.sofa.jraft.test.atomic.command.ValueCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.BaseRequestCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.BooleanCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.CommandCodec;
+import com.alipay.sofa.jraft.test.atomic.rpc.CompareAndSetCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.GetCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.IncrementAndGetCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.SetCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.ValueCommand;
 import com.alipay.sofa.jraft.util.Utils;
 
 /**

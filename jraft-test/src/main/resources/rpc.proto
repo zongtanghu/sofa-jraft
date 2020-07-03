@@ -1,0 +1,52 @@
+syntax="proto2";
+
+package test;
+
+option java_package="com.alipay.sofa.jraft.test.atomic.rpc";
+option java_outer_classname = "RpcRequests";
+
+message BooleanRequest {
+    required bool success = 1;
+    required string errorMsg = 2;
+    required string redirect = 3;
+}
+
+message CompareAndSetRequest {
+    required string key = 1;
+    required int64 expect = 2;
+    required int64 newValue = 3;
+}
+
+message GetRequest {
+    required string key = 1;
+    required bool readFromQuorum = 2;
+    required bool readByStateMachine = 3;
+}
+
+message GetSlotsRequest {
+
+}
+
+message IncrementAndGetRequest {
+    required string key = 1;
+    required int64 detal = 2;
+}
+
+message SetRequest {
+    required string key = 1;
+    required int64 value = 2;
+}
+
+message SlotsResponse {
+    required bool success = 1;
+    required string errorMsg = 2;
+    required string redirect = 3;
+    map<int64,string> map = 4;
+}
+
+message ValueResponse {
+    required bool success = 1;
+    required string errorMsg = 2;
+    required string redirect = 3;
+    required int64 vlaue = 4;
+}

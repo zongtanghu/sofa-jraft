@@ -33,14 +33,14 @@ import com.alipay.sofa.jraft.rpc.RpcClient;
 import com.alipay.sofa.jraft.rpc.impl.cli.CliClientServiceImpl;
 import com.alipay.sofa.jraft.test.atomic.HashUtils;
 import com.alipay.sofa.jraft.test.atomic.KeyNotFoundException;
-import com.alipay.sofa.jraft.test.atomic.command.BooleanCommand;
-import com.alipay.sofa.jraft.test.atomic.command.CompareAndSetCommand;
-import com.alipay.sofa.jraft.test.atomic.command.GetCommand;
-import com.alipay.sofa.jraft.test.atomic.command.GetSlotsCommand;
-import com.alipay.sofa.jraft.test.atomic.command.IncrementAndGetCommand;
-import com.alipay.sofa.jraft.test.atomic.command.SetCommand;
-import com.alipay.sofa.jraft.test.atomic.command.SlotsResponseCommand;
-import com.alipay.sofa.jraft.test.atomic.command.ValueCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.BooleanCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.CompareAndSetCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.GetCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.GetSlotsCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.IncrementAndGetCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.SetCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.SlotsResponseCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.ValueCommand;
 
 /**
  * A counter client

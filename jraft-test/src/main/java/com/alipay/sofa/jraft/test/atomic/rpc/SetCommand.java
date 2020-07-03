@@ -14,21 +14,27 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.alipay.sofa.jraft.test.atomic.command;
+package com.alipay.sofa.jraft.test.atomic.rpc;
 
 import java.io.Serializable;
 
 /**
- * Get total slots command
+ * set value command
  * @author boyan (boyan@alibaba-inc.com)
  *
- * 2018-May-02 11:36:30 AM
+ * 2018-Apr-25 1:28:54 PM
  */
-public class GetSlotsCommand implements Serializable {
+public class SetCommand extends BaseRequestCommand implements Serializable {
+    private static final long serialVersionUID = 5942385417491201345L;
 
-    /**
-     * 
-     */
-    private static final long serialVersionUID = -2970750203095468019L;
+    private long              value;
+
+    public long getValue() {
+        return this.value;
+    }
+
+    public void setValue(long value) {
+        this.value = value;
+    }
 
 }

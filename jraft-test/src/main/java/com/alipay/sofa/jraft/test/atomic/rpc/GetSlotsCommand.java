@@ -14,26 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.alipay.sofa.jraft.test.atomic.command;
+package com.alipay.sofa.jraft.test.atomic.rpc;
 
 import java.io.Serializable;
 
 /**
- * Increment with detal and get the latest value.
+ * Get total slots command
  * @author boyan (boyan@alibaba-inc.com)
  *
- * 2018-Apr-25 1:28:42 PM
+ * 2018-May-02 11:36:30 AM
  */
-public class IncrementAndGetCommand extends BaseRequestCommand implements Serializable {
-    private static final long serialVersionUID = -1232443841104358771L;
-    private long              detal;
+public class GetSlotsCommand implements Serializable {
 
-    public long getDetal() {
-        return this.detal;
-    }
-
-    public void setDetal(long detal) {
-        this.detal = detal;
-    }
+    /**
+     * 
+     */
+    private static final long serialVersionUID = -2970750203095468019L;
 
 }

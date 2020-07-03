@@ -21,15 +21,16 @@ import java.nio.ByteBuffer;
 import com.alipay.sofa.jraft.entity.Task;
 import com.alipay.sofa.jraft.rpc.RpcContext;
 import com.alipay.sofa.jraft.rpc.RpcProcessor;
-import com.alipay.sofa.jraft.test.atomic.command.BaseRequestCommand;
-import com.alipay.sofa.jraft.test.atomic.command.BooleanCommand;
-import com.alipay.sofa.jraft.test.atomic.command.CommandCodec;
+import com.alipay.sofa.jraft.test.atomic.rpc.BaseRequestCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.BooleanCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.CommandCodec;
 import com.alipay.sofa.jraft.test.atomic.server.AtomicRangeGroup;
 import com.alipay.sofa.jraft.test.atomic.server.AtomicServer;
 import com.alipay.sofa.jraft.test.atomic.server.CommandType;
 import com.alipay.sofa.jraft.test.atomic.server.LeaderTaskClosure;
+import com.google.protobuf.Message;
 
-public abstract class BaseAsyncUserProcessor<T extends BaseRequestCommand> implements RpcProcessor<T> {
+public abstract class BaseAsyncUserProcessor<T extends Message> implements RpcProcessor<T> {
     protected AtomicServer server;
 
     public BaseAsyncUserProcessor(AtomicServer server) {

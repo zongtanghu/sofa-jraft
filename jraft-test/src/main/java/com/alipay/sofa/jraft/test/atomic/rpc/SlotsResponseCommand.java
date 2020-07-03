@@ -14,27 +14,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.alipay.sofa.jraft.test.atomic.command;
+package com.alipay.sofa.jraft.test.atomic.rpc;
 
 import java.io.Serializable;
+import java.util.TreeMap;
 
-/**
- * set value command
- * @author boyan (boyan@alibaba-inc.com)
- *
- * 2018-Apr-25 1:28:54 PM
- */
-public class SetCommand extends BaseRequestCommand implements Serializable {
-    private static final long serialVersionUID = 5942385417491201345L;
+public class SlotsResponseCommand extends BooleanCommand implements Serializable {
+    private static final long     serialVersionUID = -3155350383161976585L;
+    private TreeMap<Long, String> map              = new TreeMap<>();
 
-    private long              value;
-
-    public long getValue() {
-        return this.value;
+    public TreeMap<Long, String> getMap() {
+        return this.map;
     }
 
-    public void setValue(long value) {
-        this.value = value;
+    public void setMap(TreeMap<Long, String> map) {
+        this.map = map;
     }
 
 }

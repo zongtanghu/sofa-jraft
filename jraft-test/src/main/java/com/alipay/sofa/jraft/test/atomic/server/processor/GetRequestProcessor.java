@@ -18,8 +18,8 @@ package com.alipay.sofa.jraft.test.atomic.server.processor;
 
 import com.alipay.sofa.jraft.rpc.RpcContext;
 import com.alipay.sofa.jraft.test.atomic.KeyNotFoundException;
-import com.alipay.sofa.jraft.test.atomic.command.GetCommand;
-import com.alipay.sofa.jraft.test.atomic.command.ValueCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.GetCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.ValueCommand;
 import com.alipay.sofa.jraft.test.atomic.server.AtomicRangeGroup;
 import com.alipay.sofa.jraft.test.atomic.server.AtomicServer;
 import com.alipay.sofa.jraft.test.atomic.server.CommandType;
@@ -29,14 +29,14 @@ import com.alipay.sofa.jraft.test.atomic.server.CommandType;
  * @author dennis
  *
  */
-public class GetCommandProcessor extends BaseAsyncUserProcessor<GetCommand> {
+public class GetRequestProcessor extends BaseAsyncUserProcessor<GetCommand> {
 
     @Override
     protected CommandType getCmdType() {
         return CommandType.GET;
     }
 
-    public GetCommandProcessor(AtomicServer server) {
+    public GetRequestProcessor(AtomicServer server) {
         super(server);
     }
 

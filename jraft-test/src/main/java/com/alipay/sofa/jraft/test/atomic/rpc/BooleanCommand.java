@@ -14,7 +14,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.alipay.sofa.jraft.test.atomic.command;
+package com.alipay.sofa.jraft.test.atomic.rpc;
 
 import java.io.Serializable;
 

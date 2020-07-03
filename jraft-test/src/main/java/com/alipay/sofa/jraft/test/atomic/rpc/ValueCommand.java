@@ -14,17 +14,42 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.alipay.sofa.jraft.test.atomic.command;
+package com.alipay.sofa.jraft.test.atomic.rpc;
 
-public class BaseRequestCommand {
-    private String key;
+/**
+ * Value response command
+ * @author boyan (boyan@alibaba-inc.com)
+ *
+ * 2018-Apr-25 1:29:03 PM
+ */
+public class ValueCommand extends BooleanCommand {
+    private static final long serialVersionUID = -4313480716428249772L;
+    private long              vlaue;
 
-    public String getKey() {
-        return this.key;
+    public ValueCommand() {
+        super();
     }
 
-    public void setKey(String key) {
-        this.key = key;
+    public ValueCommand(boolean result, String errorMsg) {
+        super(result, errorMsg);
+    }
+
+    public ValueCommand(boolean result) {
+        super(result);
+    }
+
+    public ValueCommand(long vlaue) {
+        super();
+        this.vlaue = vlaue;
+        this.setSuccess(true);
+    }
+
+    public long getVlaue() {
+        return this.vlaue;
+    }
+
+    public void setVlaue(long vlaue) {
+        this.vlaue = vlaue;
     }
 
 }

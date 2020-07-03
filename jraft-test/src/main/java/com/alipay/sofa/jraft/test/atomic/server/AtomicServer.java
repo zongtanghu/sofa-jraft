@@ -20,6 +20,11 @@ import java.io.File;
 import java.io.IOException;
 import java.util.TreeMap;
 
+import com.alipay.sofa.jraft.rpc.impl.GrpcRaftRpcFactory;
+import com.alipay.sofa.jraft.rpc.impl.MarshallerRegistry;
+import com.alipay.sofa.jraft.test.atomic.rpc.RpcRequests;
+import com.alipay.sofa.jraft.util.Endpoint;
+import com.alipay.sofa.jraft.util.RpcFactoryHelper;
 import org.apache.commons.io.FileUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,11 +33,11 @@ import com.alipay.sofa.jraft.entity.PeerId;
 import com.alipay.sofa.jraft.rpc.RaftRpcServerFactory;
 import com.alipay.sofa.jraft.rpc.RpcServer;
 import com.alipay.sofa.jraft.test.atomic.HashUtils;
-import com.alipay.sofa.jraft.test.atomic.server.processor.CompareAndSetCommandProcessor;
-import com.alipay.sofa.jraft.test.atomic.server.processor.GetCommandProcessor;
-import com.alipay.sofa.jraft.test.atomic.server.processor.GetSlotsCommandProcessor;
-import com.alipay.sofa.jraft.test.atomic.server.processor.IncrementAndGetCommandProcessor;
-import com.alipay.sofa.jraft.test.atomic.server.processor.SetCommandProcessor;
+import com.alipay.sofa.jraft.test.atomic.server.processor.CompareAndSetRequestProcessor;
+import com.alipay.sofa.jraft.test.atomic.server.processor.GetRequestProcessor;
+import com.alipay.sofa.jraft.test.atomic.server.processor.GetSlotsRequestProcessor;
+import com.alipay.sofa.jraft.test.atomic.server.processor.IncrementAndGetRequestProcessor;
+import com.alipay.sofa.jraft.test.atomic.server.processor.SetRequestProcessor;
 
 /**
  * Atomic server with multi raft groups.
@@ -75,13 +80,38 @@ public class AtomicServer {
 
         FileUtils.forceMkdir(new File(conf.getDataPath()));
         // The same in-process raft group shares the same RPC Server.
-        RpcServer rpcServer = RaftRpcServerFactory.createRaftRpcServer(serverId.getEndpoint());
+        GrpcRaftRpcFactory raftRpcFactory = (GrpcRaftRpcFactory) RpcFactoryHelper.rpcFactory();
+        // Register request and response proto.
+        raftRpcFactory.registerProtobufSerializer(RpcRequests.GetSlotsRequest.class.getName(),
+                RpcRequests.GetSlotsRequest.getDefaultInstance());
+        raftRpcFactory.registerProtobufSerializer(RpcRequests.GetRequest.class.getName(),
+                RpcRequests.GetRequest.getDefaultInstance());
+        raftRpcFactory.registerProtobufSerializer(RpcRequests.IncrementAndGetRequest.class.getName(),
+                RpcRequests.IncrementAndGetRequest.getDefaultInstance());
+        raftRpcFactory.registerProtobufSerializer(RpcRequests.CompareAndSetRequest.class.getName(),
+                RpcRequests.CompareAndSetRequest.getDefaultInstance());
+        raftRpcFactory.registerProtobufSerializer(RpcRequests.SetRequest.class.getName(),
+                RpcRequests.SetRequest.getDefaultInstance());
+
+        // Register request and response relationship.
+        MarshallerRegistry registry = raftRpcFactory.getMarshallerRegistry();
+        registry.registerResponseInstance(RpcRequests.GetSlotsRequest.class.getName(), RpcRequests.SlotsResponse.getDefaultInstance());
+        registry.registerResponseInstance(RpcRequests.GetRequest.class.getName(), RpcRequests.ValueResponse.getDefaultInstance());
+        registry.registerResponseInstance(RpcRequests.IncrementAndGetRequest.class.getName(), RpcRequests.ValueResponse.getDefaultInstance());
+        registry.registerResponseInstance(RpcRequests.CompareAndSetRequest.class.getName(), RpcRequests.ValueResponse.getDefaultInstance());
+        registry.registerResponseInstance(RpcRequests.SetRequest.class.getName(), RpcRequests.ValueResponse.getDefaultInstance());
+
+
+        final RpcServer rpcServer = raftRpcFactory.createRpcServer(serverId.getEndpoint());
+
+
         // Register biz handler
-        rpcServer.registerProcessor(new GetSlotsCommandProcessor(this));
-        rpcServer.registerProcessor(new GetCommandProcessor(this));
-        rpcServer.registerProcessor(new IncrementAndGetCommandProcessor(this));
-        rpcServer.registerProcessor(new CompareAndSetCommandProcessor(this));
-        rpcServer.registerProcessor(new SetCommandProcessor(this));
+        rpcServer.registerProcessor(new GetSlotsRequestProcessor(this));
+        rpcServer.registerProcessor(new GetRequestProcessor(this));
+        rpcServer.registerProcessor(new IncrementAndGetRequestProcessor(this));
+        rpcServer.registerProcessor(new CompareAndSetRequestProcessor(this));
+        rpcServer.registerProcessor(new SetRequestProcessor(this));
+
 
         long step = conf.getMaxSlot() / totalSlots;
         if (conf.getMaxSlot() % totalSlots > 0) {

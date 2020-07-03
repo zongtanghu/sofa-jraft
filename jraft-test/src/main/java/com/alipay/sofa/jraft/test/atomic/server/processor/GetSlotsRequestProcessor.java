@@ -18,14 +18,14 @@ package com.alipay.sofa.jraft.test.atomic.server.processor;
 
 import com.alipay.sofa.jraft.rpc.RpcContext;
 import com.alipay.sofa.jraft.rpc.RpcProcessor;
-import com.alipay.sofa.jraft.test.atomic.command.GetSlotsCommand;
-import com.alipay.sofa.jraft.test.atomic.command.SlotsResponseCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.GetSlotsCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.SlotsResponseCommand;
 import com.alipay.sofa.jraft.test.atomic.server.AtomicServer;
 
-public class GetSlotsCommandProcessor implements RpcProcessor<GetSlotsCommand> {
+public class GetSlotsRequestProcessor implements RpcProcessor<GetSlotsCommand> {
     private AtomicServer server;
 
-    public GetSlotsCommandProcessor(AtomicServer server) {
+    public GetSlotsRequestProcessor(AtomicServer server) {
         super();
         this.server = server;
     }

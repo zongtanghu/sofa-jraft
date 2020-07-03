@@ -36,9 +36,9 @@ import com.alipay.sofa.jraft.option.ReadOnlyOption;
 import com.alipay.sofa.jraft.rpc.RpcContext;
 import com.alipay.sofa.jraft.rpc.RpcServer;
 import com.alipay.sofa.jraft.test.atomic.KeyNotFoundException;
-import com.alipay.sofa.jraft.test.atomic.command.BooleanCommand;
-import com.alipay.sofa.jraft.test.atomic.command.ValueCommand;
-import com.alipay.sofa.jraft.test.atomic.server.processor.GetCommandProcessor;
+import com.alipay.sofa.jraft.test.atomic.rpc.BooleanCommand;
+import com.alipay.sofa.jraft.test.atomic.rpc.ValueCommand;
+import com.alipay.sofa.jraft.test.atomic.server.processor.GetRequestProcessor;
 import com.alipay.sofa.jraft.util.Bits;
 import com.codahale.metrics.ConsoleReporter;
 
@@ -114,7 +114,7 @@ public class AtomicRangeGroup {
                     try {
                         asyncContext.sendResponse(new ValueCommand(fsm.getValue(key)));
                     } catch (final KeyNotFoundException e) {
-                        asyncContext.sendResponse(GetCommandProcessor.createKeyNotFoundResponse());
+                        asyncContext.sendResponse(GetRequestProcessor.createKeyNotFoundResponse());
                     }
                 } else {
                     asyncContext.sendResponse(new BooleanCommand(false, status.getErrorMsg()));
